@@ -1,0 +1,9 @@
+# Not yet effective, but this is the configuration for flutter_launcher_icons
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "C:\\StudyMatch\\study-match-java-main\\study-match-java-main\\app\\src\\main\\app_logo-playstore.png"
+  # For Android adaptive icons (recommended)
+  adaptive_icon_background: "#ffffff"
+  adaptive_icon_foreground: "assets/icon/foreground.png"
+  
