@@ -211,6 +211,9 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
     String? fileName;
     bool uploading = false;
 
+    // ✅ Grab the author name from the logged-in user upfront
+    final authorName = context.read<AppState>().currentUser?.fullName ?? 'Unknown';
+
     final subjects = ['Mathematics','Physics','Chemistry','Biology',
         'Computer Science','English','History','Statistics'];
 
@@ -338,12 +341,14 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                       ? null
                       : () async {
                           setS(() => uploading = true);
+                          // ✅ authorName is now passed correctly
                           final result = await context.read<AppState>().uploadResource(
-                            title: titleCtrl.text.trim(),
-                            subject: subject!,
+                            title:       titleCtrl.text.trim(),
+                            subject:     subject!,
                             description: descCtrl.text.trim(),
-                            fileBytes: fileBytes!,
-                            fileName: fileName!,
+                            authorName:  authorName,
+                            fileBytes:   fileBytes!,
+                            fileName:    fileName!,
                           );
                           if (ctx.mounted) Navigator.pop(ctx);
                           if (mounted) {
@@ -450,7 +455,6 @@ class _ResourceCard extends StatelessWidget {
               icon: const Icon(Icons.download_outlined, color: AppTheme.textMuted, size: 22),
               onPressed: () {
                 // Open file URL
-                // You can use url_launcher package:
                 // launchUrl(Uri.parse(resource.fileUrl!));
               },
             ),

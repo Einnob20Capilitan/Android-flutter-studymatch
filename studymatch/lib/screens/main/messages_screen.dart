@@ -8,6 +8,7 @@ import '../../widgets/shared_widgets.dart';
 import '../../services/app_state.dart';
 import '../../services/message_service.dart';
 import '../../models/models.dart';
+import 'user_profile_screen.dart';
 
 // ── Messages Screen ───────────────────────────────────────────────────────────
 class MessagesScreen extends StatefulWidget {
@@ -18,12 +19,8 @@ class MessagesScreen extends StatefulWidget {
 
 class _MessagesScreenState extends State<MessagesScreen> {
   final _searchCtrl = TextEditingController();
-  List<RealUser>             _allUsers  = [];
-  List<RealUser>             _filtered  = [];
   List<Map<String, dynamic>> _inbox     = [];
-  bool   _loadingUsers = false;
   bool   _loadingInbox = true;
-  bool   _showUserList = false;
   Timer? _refreshTimer;
 
   static const _base = 'http://localhost/StudyMatch/studymatch-api';
@@ -32,7 +29,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUsers();
     _loadInbox();
     _refreshTimer = Timer.periodic(
         const Duration(seconds: 5), (_) => _loadInbox());
@@ -50,73 +46,36 @@ class _MessagesScreenState extends State<MessagesScreen> {
     if (me == null) return;
     try {
       final data = await MessageService.getInbox(userId: me.id);
-      if (mounted) {
-        setState(() {
-          _inbox       = data;
-          _loadingInbox = false;
-        });
-      }
+      if (mounted) setState(() { _inbox = data; _loadingInbox = false; });
     } catch (_) {
       if (mounted) setState(() => _loadingInbox = false);
     }
   }
 
-  Future<void> _loadUsers() async {
-    final me = context.read<AppState>().currentUser;
-    if (me == null) return;
-    setState(() => _loadingUsers = true);
-    try {
-      final uri = Uri.parse('$_base/api.php').replace(queryParameters: {
-        'action':     'get_users',
-        'api_key':    _key,
-        'exclude_id': me.id,
-      });
-      final res  = await http.get(uri);
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      if (data['success'] == true && mounted) {
-        setState(() {
-          _allUsers = (data['data'] as List)
-              .map((u) => RealUser.fromJson(u as Map<String, dynamic>))
-              .toList();
-          _filtered = _allUsers;
-        });
-      }
-    } catch (_) {}
-    if (mounted) setState(() => _loadingUsers = false);
-  }
-
-  void _onSearch(String q) {
-    setState(() {
-      _filtered = q.isEmpty
-          ? _allUsers
-          : _allUsers
-              .where((u) =>
-                  u.fullName.toLowerCase().contains(q.toLowerCase()) ||
-                  (u.department ?? '')
-                      .toLowerCase()
-                      .contains(q.toLowerCase()))
-              .toList();
-    });
-  }
-
   void _openChat(RealUser user) {
-    setState(() {
-      _showUserList = false;
-      _searchCtrl.clear();
-      _filtered = _allUsers;
-    });
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => ChatScreen(participant: user)),
     ).then((_) => _loadInbox());
   }
 
+  void _viewProfile(RealUser user) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => UserProfileScreen(user: user)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final me = context.watch<AppState>().currentUser;
+    final state = context.watch<AppState>();
+    final me    = state.currentUser;
+    final matched = state.matchedUsers; // ✅ users I swiped right on
+
     return Scaffold(
       body: SafeArea(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header
             Padding(
@@ -131,12 +90,10 @@ class _MessagesScreenState extends State<MessagesScreen> {
                           fontSize: 22,
                           fontFamily: 'Poppins')),
                   IconButton(
-                    icon: Icon(
-                      _showUserList ? Icons.close : Icons.edit_outlined,
-                      color: AppTheme.textSecondary),
-                    tooltip: _showUserList ? 'Cancel' : 'New Message',
-                    onPressed: () =>
-                        setState(() => _showUserList = !_showUserList),
+                    icon: const Icon(Icons.edit_outlined,
+                        color: AppTheme.textSecondary),
+                    tooltip: 'New Message',
+                    onPressed: () => _showNewMessageSheet(context, state),
                   ),
                 ],
               ),
@@ -148,31 +105,16 @@ class _MessagesScreenState extends State<MessagesScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: TextField(
                 controller: _searchCtrl,
-                onChanged: (v) {
-                  _onSearch(v);
-                  if (v.isNotEmpty) setState(() => _showUserList = true);
-                },
                 style: const TextStyle(
                     color: AppTheme.textPrimary,
                     fontFamily: 'Poppins',
                     fontSize: 14),
                 decoration: InputDecoration(
-                  hintText: _showUserList
-                      ? 'Search users...'
-                      : 'Search conversations...',
+                  hintText: 'Search conversations...',
                   hintStyle: const TextStyle(
                       color: AppTheme.textMuted, fontFamily: 'Poppins'),
                   prefixIcon: const Icon(Icons.search,
                       color: AppTheme.textMuted, size: 20),
-                  suffixIcon: _searchCtrl.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear,
-                              color: AppTheme.textMuted, size: 18),
-                          onPressed: () {
-                            _searchCtrl.clear();
-                            _onSearch('');
-                          })
-                      : null,
                   filled: true,
                   fillColor: AppTheme.inputBg,
                   border: OutlineInputBorder(
@@ -194,92 +136,114 @@ class _MessagesScreenState extends State<MessagesScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Body
-            Expanded(
-              child: _showUserList
-                  ? _buildUserList()
-                  : _buildInbox(me?.id ?? ''),
-            ),
+            // ✅ Matched users row (like Tinder)
+            if (matched.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Matches',
+                        style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                            fontFamily: 'Poppins')),
+                    Text('${matched.length} matched',
+                        style: const TextStyle(
+                            color: AppTheme.textMuted,
+                            fontSize: 12,
+                            fontFamily: 'Poppins')),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 90,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: matched.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 16),
+                  itemBuilder: (_, i) {
+                    final user = matched[i];
+                    return GestureDetector(
+                      onTap: () => _openChat(user),
+                      onLongPress: () => _viewProfile(user),
+                      child: Column(
+                        children: [
+                          Stack(
+                            children: [
+                              Container(
+                                width: 56, height: 56,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                      colors: [AppTheme.primary, AppTheme.accent]),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                      color: AppTheme.success, width: 2),
+                                ),
+                                child: Center(
+                                  child: Text(user.initials,
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 20,
+                                          fontFamily: 'Poppins')),
+                                ),
+                              ),
+                              Positioned(
+                                bottom: 0, right: 0,
+                                child: Container(
+                                  width: 16, height: 16,
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.success,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                        color: AppTheme.bgDark, width: 2),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          SizedBox(
+                            width: 56,
+                            child: Text(
+                              user.fullName.split(' ').first,
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: AppTheme.textSecondary,
+                                  fontSize: 11,
+                                  fontFamily: 'Poppins'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: Text('Messages',
+                    style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                        fontFamily: 'Poppins')),
+              ),
+              const SizedBox(height: 8),
+            ],
+
+            // Inbox
+            Expanded(child: _buildInbox(me?.id ?? '')),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildUserList() {
-    if (_loadingUsers) {
-      return const Center(
-          child: CircularProgressIndicator(color: AppTheme.primary));
-    }
-    if (_filtered.isEmpty) {
-      return Center(
-          child: Text(
-        _searchCtrl.text.isEmpty
-            ? 'No users found'
-            : 'No results for "${_searchCtrl.text}"',
-        style: const TextStyle(
-            color: AppTheme.textMuted, fontFamily: 'Poppins'),
-      ));
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-          child: Text(
-            '${_filtered.length} users — tap to message',
-            style: const TextStyle(
-                color: AppTheme.textMuted,
-                fontSize: 12,
-                fontFamily: 'Poppins'),
-          ),
-        ),
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            itemCount: _filtered.length,
-            separatorBuilder: (_, __) =>
-                const Divider(color: AppTheme.divider, height: 1),
-            itemBuilder: (ctx, i) {
-              final user = _filtered[i];
-              return ListTile(
-                contentPadding:
-                    const EdgeInsets.symmetric(vertical: 6),
-                leading: UserAvatar(realUser: user, radius: 24),
-                title: Text(user.fullName,
-                    style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontWeight: FontWeight.w600,
-                        fontFamily: 'Poppins',
-                        fontSize: 15)),
-                subtitle: Text(
-                    user.department ?? user.school ?? user.email,
-                    style: const TextStyle(
-                        color: AppTheme.textMuted,
-                        fontFamily: 'Poppins',
-                        fontSize: 12)),
-                trailing: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                        colors: [AppTheme.primary, AppTheme.accent]),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Text('Message',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontFamily: 'Poppins',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600)),
-                ),
-                onTap: () => _openChat(user),
-              );
-            },
-          ),
-        ),
-      ],
     );
   }
 
@@ -304,25 +268,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
                     fontWeight: FontWeight.w600,
                     fontFamily: 'Poppins')),
             const SizedBox(height: 8),
-            const Text('Tap ✏️ to start a conversation',
+            const Text('Match with someone to start chatting!',
                 style: TextStyle(
                     color: AppTheme.textMuted, fontFamily: 'Poppins')),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () => setState(() => _showUserList = true),
-              icon: const Icon(Icons.edit_outlined, size: 18),
-              label: const Text('New Message',
-                  style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontWeight: FontWeight.w600)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primary,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
           ],
         ),
       );
@@ -365,9 +313,12 @@ class _MessagesScreenState extends State<MessagesScreen> {
           );
 
           return ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(vertical: 8),
-            leading: UserAvatar(realUser: participant, radius: 26),
+            contentPadding: const EdgeInsets.symmetric(vertical: 8),
+            // ✅ tap avatar → view profile
+            leading: GestureDetector(
+              onTap: () => _viewProfile(participant),
+              child: UserAvatar(realUser: participant, radius: 26),
+            ),
             title: Text(participant.fullName,
                 style: TextStyle(
                     color: AppTheme.textPrimary,
@@ -425,6 +376,89 @@ class _MessagesScreenState extends State<MessagesScreen> {
     );
   }
 
+  // ✅ New message sheet — shows matched users first
+  void _showNewMessageSheet(BuildContext context, AppState state) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.bgCard,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        maxChildSize: 0.9,
+        minChildSize: 0.4,
+        expand: false,
+        builder: (ctx, scrollCtrl) => Column(
+          children: [
+            const SizedBox(height: 12),
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                    color: AppTheme.divider,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('New Message',
+                  style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                      fontFamily: 'Poppins')),
+            ),
+            const Divider(color: AppTheme.divider, height: 1),
+            if (state.matchedUsers.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Your Matches',
+                      style: TextStyle(
+                          color: AppTheme.textMuted,
+                          fontSize: 12,
+                          fontFamily: 'Poppins',
+                          letterSpacing: 0.5)),
+                ),
+              ),
+              ...state.matchedUsers.map((user) => ListTile(
+                    leading: UserAvatar(realUser: user, radius: 22),
+                    title: Text(user.fullName,
+                        style: const TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontFamily: 'Poppins')),
+                    subtitle: Text(
+                      user.isTutor ? '🏫 Tutor' : '🎓 Student',
+                      style: TextStyle(
+                          color: user.isTutor
+                              ? AppTheme.success
+                              : const Color(0xFF3B82F6),
+                          fontFamily: 'Poppins',
+                          fontSize: 12),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _openChat(user);
+                    },
+                  )),
+            ] else
+              const Padding(
+                padding: EdgeInsets.all(32),
+                child: Text('No matches yet. Swipe right to match!',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: AppTheme.textMuted,
+                        fontFamily: 'Poppins')),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _formatTime(String isoTime) {
     if (isoTime.isEmpty) return '';
     try {
@@ -451,8 +485,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _msgCtrl    = TextEditingController();
   final _scrollCtrl = ScrollController();
-
-  List<Map<String, dynamic>> _messages    = [];
+  List<Map<String, dynamic>> _messages = [];
   bool   _loading      = true;
   bool   _sending      = false;
   bool   _pausePolling = false;
@@ -463,8 +496,7 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _loadMessages();
     _pollTimer = Timer.periodic(
-        const Duration(seconds: 3),
-        (_) => _loadMessages(silent: true));
+        const Duration(seconds: 3), (_) => _loadMessages(silent: true));
   }
 
   @override
@@ -478,23 +510,17 @@ class _ChatScreenState extends State<ChatScreen> {
   String get _myId =>
       context.read<AppState>().currentUser?.id ?? '';
 
-  // ── Load messages ───────────────────────────────────────────
   Future<void> _loadMessages({bool silent = false}) async {
     if (_pausePolling) return;
     if (!silent) setState(() => _loading = true);
     try {
       final msgs = await MessageService.getMessages(
-        userId:  _myId,
-        otherId: widget.participant.id,
-      );
+          userId: _myId, otherId: widget.participant.id);
       if (mounted && !_pausePolling) {
         final wasAtBottom = _scrollCtrl.hasClients &&
             _scrollCtrl.position.pixels >=
                 _scrollCtrl.position.maxScrollExtent - 100;
-        setState(() {
-          _messages = msgs;
-          _loading  = false;
-        });
+        setState(() { _messages = msgs; _loading = false; });
         if (wasAtBottom || !silent) _scrollToBottom();
       }
     } catch (_) {
@@ -513,16 +539,13 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  // ── Send message ────────────────────────────────────────────
   Future<void> _send() async {
     final txt = _msgCtrl.text.trim();
     if (txt.isEmpty || _sending) return;
-
     _msgCtrl.clear();
     _pausePolling = true;
     setState(() => _sending = true);
 
-    // Add optimistic message
     final tempId  = 'temp_${DateTime.now().millisecondsSinceEpoch}';
     final tempMsg = {
       'id':         tempId,
@@ -531,30 +554,19 @@ class _ChatScreenState extends State<ChatScreen> {
       'content':    txt,
       'isRead':     false,
       'createdAt':  DateTime.now().toIso8601String(),
-      'senderName': 'Me',
     };
     setState(() => _messages.add(tempMsg));
     _scrollToBottom();
 
     try {
       final result = await MessageService.sendMessage(
-        senderId:   _myId,
-        receiverId: widget.participant.id,
-        content:    txt,
-      );
-
+          senderId: _myId, receiverId: widget.participant.id, content: txt);
       if (result['success'] == true) {
-        // Fetch real messages BEFORE resuming poll
         final msgs = await MessageService.getMessages(
-          userId:  _myId,
-          otherId: widget.participant.id,
-        );
+            userId: _myId, otherId: widget.participant.id);
         _pausePolling = false;
         if (mounted) {
-          setState(() {
-            _messages = msgs;
-            _sending  = false;
-          });
+          setState(() { _messages = msgs; _sending = false; });
           _scrollToBottom();
         }
       } else {
@@ -564,14 +576,9 @@ class _ChatScreenState extends State<ChatScreen> {
             _messages.removeWhere((m) => m['id'] == tempId);
             _sending = false;
           });
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-                result['message'] as String? ?? 'Failed to send'),
-            backgroundColor: Colors.red,
-          ));
         }
       }
-    } catch (e) {
+    } catch (_) {
       _pausePolling = false;
       if (mounted) {
         setState(() {
@@ -593,35 +600,58 @@ class _ChatScreenState extends State<ChatScreen> {
           icon: const Icon(Icons.arrow_back_ios_new, size: 18),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Row(
-          children: [
-            UserAvatar(realUser: widget.participant, radius: 18),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(widget.participant.fullName,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 15,
-                          fontFamily: 'Poppins',
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.textPrimary)),
-                  Text(
-                    widget.participant.department ??
-                        widget.participant.school ??
-                        '',
-                    style: const TextStyle(
-                        fontSize: 11,
-                        color: AppTheme.textMuted,
-                        fontFamily: 'Poppins'),
-                  ),
-                ],
+        title: GestureDetector(
+          // ✅ tap name/avatar in chat → view their profile
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (_) =>
+                    UserProfileScreen(user: widget.participant)),
+          ),
+          child: Row(
+            children: [
+              UserAvatar(realUser: widget.participant, radius: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.participant.fullName,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 15,
+                            fontFamily: 'Poppins',
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.textPrimary)),
+                    Text(
+                      widget.participant.isTutor
+                          ? '🏫 Tutor'
+                          : '🎓 Student',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: widget.participant.isTutor
+                              ? AppTheme.success
+                              : const Color(0xFF3B82F6),
+                          fontFamily: 'Poppins'),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline,
+                color: AppTheme.textSecondary, size: 20),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) =>
+                      UserProfileScreen(user: widget.participant)),
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -642,13 +672,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                 shape: BoxShape.circle,
                               ),
                               child: Center(
-                                child: Text(
-                                  widget.participant.initials,
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 28),
-                                ),
+                                child: Text(widget.participant.initials,
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 28)),
                               ),
                             ),
                             const SizedBox(height: 16),
@@ -678,14 +706,13 @@ class _ChatScreenState extends State<ChatScreen> {
                         },
                       ),
           ),
-
           // Input bar
           Container(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             decoration: const BoxDecoration(
                 color: AppTheme.bgCard,
-                border: Border(
-                    top: BorderSide(color: AppTheme.divider))),
+                border:
+                    Border(top: BorderSide(color: AppTheme.divider))),
             child: Row(
               children: [
                 Expanded(
@@ -695,7 +722,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     decoration: BoxDecoration(
                         color: AppTheme.inputBg,
                         borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: AppTheme.divider)),
+                        border:
+                            Border.all(color: AppTheme.divider)),
                     child: TextField(
                       controller: _msgCtrl,
                       style: const TextStyle(
@@ -720,8 +748,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: Container(
                     width: 44, height: 44,
                     decoration: const BoxDecoration(
-                      gradient: LinearGradient(colors: [
-                        AppTheme.primary, AppTheme.accent]),
+                      gradient: LinearGradient(
+                          colors: [AppTheme.primary, AppTheme.accent]),
                       shape: BoxShape.circle,
                     ),
                     child: _sending
@@ -742,7 +770,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-// ── Message Bubble ────────────────────────────────────────────────────────────
 class _Bubble extends StatelessWidget {
   final Map<String, dynamic> msg;
   final bool isMe;
@@ -750,7 +777,7 @@ class _Bubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final time = _formatTime(msg['createdAt'] as String? ?? '');
+    final time = _fmt(msg['createdAt'] as String? ?? '');
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -771,8 +798,7 @@ class _Bubble extends StatelessWidget {
             bottomLeft:  Radius.circular(isMe ? 16 : 4),
             bottomRight: Radius.circular(isMe ? 4 : 16),
           ),
-          border:
-              isMe ? null : Border.all(color: AppTheme.divider),
+          border: isMe ? null : Border.all(color: AppTheme.divider),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -814,13 +840,11 @@ class _Bubble extends StatelessWidget {
     );
   }
 
-  String _formatTime(String isoTime) {
-    if (isoTime.isEmpty) return '';
+  String _fmt(String iso) {
+    if (iso.isEmpty) return '';
     try {
-      final dt = DateTime.parse(isoTime);
+      final dt = DateTime.parse(iso);
       return '${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
-    } catch (_) {
-      return '';
-    }
+    } catch (_) { return ''; }
   }
 }

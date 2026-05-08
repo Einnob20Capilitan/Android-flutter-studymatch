@@ -15,31 +15,59 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameCtrl;
   late final TextEditingController _schoolCtrl;
+  late final TextEditingController _bioCtrl;
 
   String? _selectedTopic;
   DateTime? _dob;
   String? _selectedGender;
-  String? _selectedEnrollment;
+  String? _selectedDepartment; // for students (chip)
+  String? _degreeCtrl_text;    // for tutors (free text)
+  late final TextEditingController _degreeCtrl;
+
   late Set<String> _selectedSubjects;
+  late Set<String> _selectedStrengths;
+  late Set<String> _selectedWeaknesses;
   late Set<String> _selectedLearningStyles;
   late Set<String> _selectedStudyStyles;
   late Map<String, Set<String>> _availability;
   late Set<String> _selectedDays;
   bool _saving = false;
 
+  static const _subjectList = [
+    'Mathematics', 'Physics', 'Chemistry', 'Biology', 'English',
+    'Computer Science', 'History', 'Geography', 'Economics', 'Psychology',
+    'Literature', 'Statistics', 'Calculus', 'Algebra',
+    'Organic Chemistry', 'Programming',
+  ];
+  static const _deptList = ['CTE', 'CAS', 'CET', 'CBE', 'CCJ', 'COAHS'];
+  static const _dayList  = [
+    'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'
+  ];
+  static const _timeList = [
+    'Morning (6am-12pm)', 'Afternoon (12pm-6pm)',
+    'Evening (6pm-9pm)',  'Night (9pm-6am)',
+  ];
+
   @override
   void initState() {
     super.initState();
     final user = context.read<AppState>().currentUser!;
-    _nameCtrl = TextEditingController(text: user.fullName);
+    _nameCtrl   = TextEditingController(text: user.fullName);
     _schoolCtrl = TextEditingController(text: user.school ?? '');
-    _selectedTopic = user.topic;
-    _dob = user.dateOfBirth;
-    _selectedGender = user.gender;
-    _selectedEnrollment = user.yearLevel;
-    _selectedSubjects = Set.from(user.subjects);
+    _bioCtrl    = TextEditingController(text: user.bio ?? '');
+    _degreeCtrl = TextEditingController(
+        text: user.isTutor ? (user.department ?? '') : '');
+
+    _selectedTopic      = user.topic;
+    _dob                = user.dateOfBirth;
+    _selectedGender     = user.gender;
+    _selectedDepartment = user.isStudent ? user.department : null;
+
+    _selectedSubjects       = Set.from(user.subjects);
+    _selectedStrengths      = Set.from(user.strengths);
+    _selectedWeaknesses     = Set.from(user.weaknesses);
     _selectedLearningStyles = Set.from(user.learningStyles);
-    _selectedStudyStyles = Set.from(user.studyStyles);
+    _selectedStudyStyles    = Set.from(user.studyStyles);
     _availability =
         user.availability.map((k, v) => MapEntry(k, Set<String>.from(v)));
     _selectedDays = Set.from(_availability.keys);
@@ -49,34 +77,53 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void dispose() {
     _nameCtrl.dispose();
     _schoolCtrl.dispose();
+    _bioCtrl.dispose();
+    _degreeCtrl.dispose();
     super.dispose();
   }
+
+  bool get _isTutor =>
+      context.read<AppState>().currentUser?.role == 'tutor';
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
-    await context.read<AppState>().saveProfile({
-      'fullName': _nameCtrl.text.trim(),
-      'school': _schoolCtrl.text.trim(),
-      'topic': _selectedTopic,
-      'dateOfBirth': _dob,
-      'gender': _selectedGender,
-      'yearLevel': _selectedEnrollment,
-      'subjects': _selectedSubjects.toList(),
+
+    // Build availability map with List values
+    final avail = <String, List<String>>{};
+    for (final day in _selectedDays) {
+      avail[day] = (_availability[day] ?? <String>{}).toList();
+    }
+
+    final error = await context.read<AppState>().saveProfile({
+      'fullName':      _nameCtrl.text.trim(),
+      'school':        _schoolCtrl.text.trim(),
+      'bio':           _bioCtrl.text.trim(),
+      'topic':         _selectedTopic,
+      'dateOfBirth':   _dob?.toIso8601String(), // ✅ must be String, not DateTime
+      'gender':        _selectedGender,
+      'department':    _isTutor
+          ? _degreeCtrl.text.trim()
+          : _selectedDepartment,
+      'subjects':      _selectedSubjects.toList(),
+      'strengths':     _selectedStrengths.toList(),   // ✅ was missing
+      'weaknesses':    _selectedWeaknesses.toList(),  // ✅ was missing
       'learningStyles': _selectedLearningStyles.toList(),
-      'studyStyles': _selectedStudyStyles.toList(),
-      'availability': _availability.map((k, v) => MapEntry(k, v.toList())),
+      'studyStyles':   _selectedStudyStyles.toList(),
+      'availability':  avail,
     });
+
     if (!mounted) return;
     setState(() => _saving = false);
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Profile updated!'),
-        backgroundColor: AppTheme.success,
+      SnackBar(
+        content: Text(error ?? 'Profile updated!'),
+        backgroundColor: error == null ? AppTheme.success : AppTheme.error,
         behavior: SnackBarBehavior.floating,
       ),
     );
-    Navigator.of(context).pop();
+    if (error == null) Navigator.of(context).pop();
   }
 
   @override
@@ -108,6 +155,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     title: 'Subjects',
                     child: _buildSubjects(),
                   ),
+                  if (_isTutor)
+                    _buildSection(
+                      icon: Icons.emoji_events_outlined,
+                      title: 'Expert Subjects (Can Tutor)',
+                      child: _buildStrengths(),
+                    ),
+                  if (!_isTutor)
+                    _buildSection(
+                      icon: Icons.help_outline,
+                      title: 'Needs Help With',
+                      child: _buildWeaknesses(),
+                    ),
                   _buildSection(
                     icon: Icons.psychology_outlined,
                     title: 'Study Style',
@@ -136,6 +195,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
+  // ── App Bar ───────────────────────────────────────────────────────────────
   Widget _buildAppBar() {
     return SliverAppBar(
       pinned: true,
@@ -147,53 +207,46 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             color: AppTheme.textSecondary, size: 18),
         onPressed: () => Navigator.of(context).pop(),
       ),
-      title: const Text(
-        'Edit Profile',
-        style: TextStyle(
-          color: AppTheme.textPrimary,
-          fontFamily: 'Poppins',
-          fontWeight: FontWeight.w600,
-          fontSize: 18,
-        ),
-      ),
+      title: const Text('Edit Profile',
+          style: TextStyle(
+              color: AppTheme.textPrimary,
+              fontFamily: 'Poppins',
+              fontWeight: FontWeight.w600,
+              fontSize: 18)),
       actions: [
         Padding(
           padding: const EdgeInsets.only(right: 12),
           child: _saving
               ? const Center(
                   child: SizedBox(
-                    width: 20,
-                    height: 20,
+                    width: 20, height: 20,
                     child: CircularProgressIndicator(
                         strokeWidth: 2, color: AppTheme.primaryLight),
                   ),
                 )
               : TextButton(
                   onPressed: _save,
-                  child: const Text(
-                    'Save',
-                    style: TextStyle(
-                      color: AppTheme.primaryLight,
-                      fontFamily: 'Poppins',
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
-                    ),
-                  ),
+                  child: const Text('Save',
+                      style: TextStyle(
+                          color: AppTheme.primaryLight,
+                          fontFamily: 'Poppins',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15)),
                 ),
         ),
       ],
     );
   }
 
+  // ── Avatar Header ─────────────────────────────────────────────────────────
   Widget _buildAvatarHeader() {
-    final name = _nameCtrl.text;
+    final name    = _nameCtrl.text;
     final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
     return Container(
       width: double.infinity,
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
           colors: [Color(0xFF2D1F5E), Color(0xFF1A0A3A)],
         ),
       ),
@@ -203,61 +256,44 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           Stack(
             children: [
               Container(
-                width: 88,
-                height: 88,
+                width: 88, height: 88,
                 decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                      colors: [AppTheme.primary, AppTheme.accent]),
+                  gradient: LinearGradient(colors: [AppTheme.primary, AppTheme.accent]),
                   shape: BoxShape.circle,
                 ),
                 child: Center(
-                  child: Text(
-                    initial,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 36,
-                      fontFamily: 'Poppins',
-                    ),
-                  ),
+                  child: Text(initial,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 36,
+                          fontFamily: 'Poppins')),
                 ),
               ),
               Positioned(
-                bottom: 0,
-                right: 0,
+                bottom: 0, right: 0,
                 child: Container(
-                  width: 28,
-                  height: 28,
+                  width: 28, height: 28,
                   decoration: BoxDecoration(
                     color: AppTheme.primary,
                     shape: BoxShape.circle,
                     border: Border.all(color: AppTheme.bgDark, width: 2),
                   ),
-                  child: const Icon(Icons.camera_alt_rounded,
-                      color: Colors.white, size: 14),
+                  child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 14),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 10),
-          const Text(
-            'Tap the camera to change photo',
-            style: TextStyle(
-              color: AppTheme.textMuted,
-              fontSize: 12,
-              fontFamily: 'Poppins',
-            ),
-          ),
+          const Text('Tap the camera to change photo',
+              style: TextStyle(color: AppTheme.textMuted, fontSize: 12, fontFamily: 'Poppins')),
         ],
       ),
     );
   }
 
-  Widget _buildSection({
-    required IconData icon,
-    required String title,
-    required Widget child,
-  }) {
+  // ── Section wrapper ───────────────────────────────────────────────────────
+  Widget _buildSection({required IconData icon, required String title, required Widget child}) {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       decoration: BoxDecoration(
@@ -273,37 +309,31 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             child: Row(
               children: [
                 Container(
-                  width: 32,
-                  height: 32,
+                  width: 32, height: 32,
                   decoration: BoxDecoration(
-                    color: AppTheme.primary.withValues(alpha: 0.15),
+                    color: AppTheme.primary.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(icon, color: AppTheme.primaryLight, size: 17),
                 ),
                 const SizedBox(width: 10),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                    fontFamily: 'Poppins',
-                  ),
-                ),
+                Text(title,
+                    style: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                        fontFamily: 'Poppins')),
               ],
             ),
           ),
           const Divider(height: 1, color: AppTheme.divider),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: child,
-          ),
+          Padding(padding: const EdgeInsets.all(16), child: child),
         ],
       ),
     );
   }
 
+  // ── Personal Info ─────────────────────────────────────────────────────────
   Widget _buildPersonalInfo() {
     return Column(
       children: [
@@ -312,28 +342,42 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           hint: 'Juan dela Cruz',
           controller: _nameCtrl,
           prefixIcon: Icons.person_outline,
-          validator: (v) => (v == null || v.trim().length < 2)
-              ? 'Enter your full name'
-              : null,
+          validator: (v) => (v == null || v.trim().length < 2) ? 'Enter your full name' : null,
         ),
         const SizedBox(height: 14),
         AppTextField(
           label: 'School / University',
-          hint: 'e.g. Ateneo de Davao University',
+          hint: 'e.g. University of Mindanao',
           controller: _schoolCtrl,
           prefixIcon: Icons.location_city_outlined,
         ),
         const SizedBox(height: 14),
-        _DatePickerField(
-          label: 'Date of Birth',
-          value: _dob,
-          onChanged: (v) => setState(() => _dob = v),
+        // Bio
+        _fieldLabel('Bio (Optional)'),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _bioCtrl,
+          maxLines: 3,
+          style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Poppins', fontSize: 14),
+          decoration: InputDecoration(
+            hintText: _isTutor ? 'Tell students about your teaching approach...' : 'Tell others about yourself...',
+            hintStyle: const TextStyle(color: AppTheme.textMuted, fontFamily: 'Poppins'),
+            filled: true,
+            fillColor: AppTheme.inputBg,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppTheme.divider)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppTheme.divider)),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppTheme.primary)),
+          ),
         ),
         const SizedBox(height: 14),
+        _DatePickerField(label: 'Date of Birth', value: _dob,
+            onChanged: (v) => setState(() => _dob = v)),
+        const SizedBox(height: 14),
         _DropdownField(
-          label: 'Gender',
-          hint: 'Select gender',
-          value: _selectedGender,
+          label: 'Gender', hint: 'Select gender', value: _selectedGender,
           items: const ['Male', 'Female', 'Non-Binary', 'Prefer not to say'],
           onChanged: (v) => setState(() => _selectedGender = v),
         ),
@@ -341,85 +385,126 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
+  // ── Academic Details ──────────────────────────────────────────────────────
   Widget _buildAcademicDetails() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Tutors get free-text degree; students get department chips
+        if (_isTutor) ...[
+          _fieldLabel('College Degree'),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _degreeCtrl,
+            style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Poppins', fontSize: 14),
+            decoration: InputDecoration(
+              hintText: 'e.g. BS Computer Science',
+              hintStyle: const TextStyle(color: AppTheme.textMuted, fontFamily: 'Poppins'),
+              prefixIcon: const Icon(Icons.workspace_premium_outlined, color: AppTheme.textMuted, size: 20),
+              filled: true,
+              fillColor: AppTheme.inputBg,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppTheme.divider)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppTheme.divider)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: AppTheme.primary)),
+            ),
+          ),
+        ] else ...[
+          _fieldLabel('College Department'),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8, runSpacing: 8,
+            children: _deptList.map((d) => SelectableChip(
+              label: d,
+              selected: _selectedDepartment == d,
+              onTap: () => setState(() =>
+                  _selectedDepartment = _selectedDepartment == d ? null : d),
+            )).toList(),
+          ),
+        ],
+        const SizedBox(height: 16),
         _DropdownField(
-          label: 'Strand / Track',
+          label: 'Strand / Track (Optional)',
           hint: 'Select strand or track',
           value: _selectedTopic,
           items: const ['STEM', 'ABM', 'HUMSS', 'GAS', 'TVL'],
           onChanged: (v) => setState(() => _selectedTopic = v),
         ),
-        const SizedBox(height: 16),
-        _labelText('College Enrollment'),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: ['CTE', 'CAS', 'CET', 'CBE', 'CCJ', 'COAHS']
-              .map((e) => SelectableChip(
-                    label: e,
-                    selected: _selectedEnrollment == e,
-                    onTap: () => setState(() => _selectedEnrollment =
-                        _selectedEnrollment == e ? null : e),
-                  ))
-              .toList(),
-        ),
       ],
     );
   }
 
+  // ── Subjects ──────────────────────────────────────────────────────────────
   Widget _buildSubjects() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (_selectedSubjects.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Text(
-              '${_selectedSubjects.length} selected',
-              style: const TextStyle(
-                  color: AppTheme.primaryLight,
-                  fontSize: 13,
-                  fontFamily: 'Poppins'),
-            ),
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Text('${_selectedSubjects.length} selected',
+                style: const TextStyle(color: AppTheme.primaryLight, fontSize: 13, fontFamily: 'Poppins')),
           ),
         Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            'Mathematics',
-            'Physics',
-            'Chemistry',
-            'Biology',
-            'English',
-            'Computer Science',
-            'History',
-            'Geography',
-            'Economics',
-            'Psychology',
-            'Literature',
-            'Statistics',
-            'Calculus',
-            'Algebra',
-            'Organic Chemistry',
-            'Programming',
-          ]
-              .map((s) => SelectableChip(
-                    label: s,
-                    selected: _selectedSubjects.contains(s),
-                    onTap: () => setState(() => _selectedSubjects.contains(s)
-                        ? _selectedSubjects.remove(s)
-                        : _selectedSubjects.add(s)),
-                  ))
-              .toList(),
+          spacing: 8, runSpacing: 8,
+          children: _subjectList.map((s) => SelectableChip(
+            label: s,
+            selected: _selectedSubjects.contains(s),
+            onTap: () => setState(() => _selectedSubjects.contains(s)
+                ? _selectedSubjects.remove(s) : _selectedSubjects.add(s)),
+          )).toList(),
         ),
       ],
     );
   }
 
+  // ── Strengths (tutors) ────────────────────────────────────────────────────
+  Widget _buildStrengths() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Students weak in these subjects will be matched with you',
+            style: TextStyle(color: AppTheme.textMuted, fontSize: 12, fontFamily: 'Poppins')),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8, runSpacing: 8,
+          children: _subjectList.map((s) => SelectableChip(
+            label: s,
+            selected: _selectedStrengths.contains(s),
+            selectedColor: AppTheme.success,
+            onTap: () => setState(() => _selectedStrengths.contains(s)
+                ? _selectedStrengths.remove(s) : _selectedStrengths.add(s)),
+          )).toList(),
+        ),
+      ],
+    );
+  }
+
+  // ── Weaknesses (students) ─────────────────────────────────────────────────
+  Widget _buildWeaknesses() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Tutors strong in these subjects will be prioritised in your matches',
+            style: TextStyle(color: AppTheme.textMuted, fontSize: 12, fontFamily: 'Poppins')),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8, runSpacing: 8,
+          children: _subjectList.map((s) => SelectableChip(
+            label: s,
+            selected: _selectedWeaknesses.contains(s),
+            selectedColor: AppTheme.error,
+            onTap: () => setState(() => _selectedWeaknesses.contains(s)
+                ? _selectedWeaknesses.remove(s) : _selectedWeaknesses.add(s)),
+          )).toList(),
+        ),
+      ],
+    );
+  }
+
+  // ── Study Style ───────────────────────────────────────────────────────────
   Widget _buildStudyStyle() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -427,193 +512,181 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         _sectionLabel('LEARNING STYLE'),
         const SizedBox(height: 10),
         ...[
-          ('Visual', Icons.visibility_outlined),
-          ('Auditory', Icons.headphones_outlined),
-          ('Kinesthetic', Icons.sports_handball_outlined),
+          ('Visual',          Icons.visibility_outlined),
+          ('Auditory',        Icons.headphones_outlined),
+          ('Kinesthetic',     Icons.sports_handball_outlined),
           ('Reading/Writing', Icons.menu_book_outlined),
-        ].map(
-          (pair) => _StyleOptionTile(
-            icon: pair.$2,
-            label: pair.$1,
-            selected: _selectedLearningStyles.contains(pair.$1),
-            onTap: () => setState(() =>
-                _selectedLearningStyles.contains(pair.$1)
-                    ? _selectedLearningStyles.remove(pair.$1)
-                    : _selectedLearningStyles.add(pair.$1)),
-          ),
-        ),
+        ].map((pair) => _StyleOptionTile(
+          icon: pair.$2, label: pair.$1,
+          selected: _selectedLearningStyles.contains(pair.$1),
+          onTap: () => setState(() => _selectedLearningStyles.contains(pair.$1)
+              ? _selectedLearningStyles.remove(pair.$1)
+              : _selectedLearningStyles.add(pair.$1)),
+        )),
         const SizedBox(height: 20),
         _sectionLabel('STUDY FORMAT'),
         const SizedBox(height: 10),
         Row(
-          children: ['Group', 'Individual']
-              .map((s) => Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.only(right: s == 'Group' ? 8 : 0),
-                      child: SelectableChip(
-                        label: s,
-                        selected: _selectedStudyStyles.contains(s),
-                        onTap: () => setState(() =>
-                            _selectedStudyStyles.contains(s)
-                                ? _selectedStudyStyles.remove(s)
-                                : _selectedStudyStyles.add(s)),
-                      ),
-                    ),
-                  ))
-              .toList(),
+          children: ['Group', 'Individual'].map((s) => Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(right: s == 'Group' ? 8 : 0),
+              child: SelectableChip(
+                label: s,
+                selected: _selectedStudyStyles.contains(s),
+                onTap: () => setState(() => _selectedStudyStyles.contains(s)
+                    ? _selectedStudyStyles.remove(s)
+                    : _selectedStudyStyles.add(s)),
+              ),
+            ),
+          )).toList(),
         ),
       ],
     );
   }
 
+  // ── Availability ──────────────────────────────────────────────────────────
   Widget _buildAvailability() {
-    const days = [
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-      'Sunday',
-    ];
-    const timeBlocks = [
-      'Morning (6am-9pm)',
-      'Morning (10am-12pm)',
-      'Afternoon (1pm-4pm)',
-      'Evening (5pm-8pm)',
-      'Night (8pm-11pm)',
-      'Late Night (11pm-2am)',
-    ];
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionLabel('DAYS AVAILABLE'),
         const SizedBox(height: 10),
         Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: days
-              .map((day) => SelectableChip(
-                    label: day.substring(0, 3),
-                    selected: _selectedDays.contains(day),
-                    onTap: () => setState(() {
-                      if (_selectedDays.contains(day)) {
-                        _selectedDays.remove(day);
-                        _availability.remove(day);
-                      } else {
-                        _selectedDays.add(day);
-                        _availability[day] = {};
-                      }
-                    }),
-                  ))
-              .toList(),
+          spacing: 8, runSpacing: 8,
+          children: _dayList.map((day) => SelectableChip(
+            label: day.substring(0, 3),
+            selected: _selectedDays.contains(day),
+            onTap: () => setState(() {
+              if (_selectedDays.contains(day)) {
+                _selectedDays.remove(day);
+                _availability.remove(day);
+              } else {
+                _selectedDays.add(day);
+                _availability[day] = {};
+              }
+            }),
+          )).toList(),
         ),
         if (_selectedDays.isNotEmpty) ...[
           const SizedBox(height: 20),
           _sectionLabel('TIME BLOCKS'),
           const SizedBox(height: 10),
-          ...days.where((d) => _selectedDays.contains(d)).map((day) => Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      day,
+          ..._dayList.where((d) => _selectedDays.contains(d)).map((day) =>
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(day,
                       style: const TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontWeight: FontWeight.w500,
-                        fontFamily: 'Poppins',
-                        fontSize: 13,
+                          color: AppTheme.textSecondary,
+                          fontWeight: FontWeight.w500,
+                          fontFamily: 'Poppins',
+                          fontSize: 13)),
+                ),
+                ..._timeList.map((time) {
+                  final isSelected = _availability[day]?.contains(time) ?? false;
+                  return GestureDetector(
+                    onTap: () => setState(() {
+                      _availability.putIfAbsent(day, () => {});
+                      if (_availability[day]!.contains(time)) {
+                        _availability[day]!.remove(time);
+                      } else {
+                        _availability[day]!.add(time);
+                      }
+                    }),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isSelected ? AppTheme.chipSelected : AppTheme.bgDark,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: isSelected ? AppTheme.primary : AppTheme.divider),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isSelected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                            color: isSelected ? Colors.white : AppTheme.textMuted,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 12),
+                          Text(time,
+                              style: TextStyle(
+                                  color: isSelected ? Colors.white : AppTheme.textSecondary,
+                                  fontSize: 13,
+                                  fontFamily: 'Poppins')),
+                        ],
                       ),
                     ),
-                  ),
-                  ...timeBlocks.map((time) {
-                    final isSelected =
-                        _availability[day]?.contains(time) ?? false;
-                    return GestureDetector(
-                      onTap: () => setState(() {
-                        _availability.putIfAbsent(day, () => {});
-                        if (_availability[day]!.contains(time)) {
-                          _availability[day]!.remove(time);
-                        } else {
-                          _availability[day]!.add(time);
-                        }
-                      }),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        margin: const EdgeInsets.only(bottom: 6),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppTheme.chipSelected
-                              : AppTheme.bgDark,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: isSelected
-                                ? AppTheme.primary
-                                : AppTheme.divider,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              isSelected
-                                  ? Icons.check_circle_rounded
-                                  : Icons.circle_outlined,
-                              color: isSelected
-                                  ? Colors.white
-                                  : AppTheme.textMuted,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              time,
-                              style: TextStyle(
-                                color: isSelected
-                                    ? Colors.white
-                                    : AppTheme.textSecondary,
-                                fontSize: 13,
-                                fontFamily: 'Poppins',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }),
-                  const SizedBox(height: 10),
-                ],
-              )),
+                  );
+                }),
+                const SizedBox(height: 10),
+              ],
+            ),
+          ),
         ],
       ],
     );
   }
 
-  Widget _labelText(String text) => Text(
-        text,
-        style: const TextStyle(
+  Widget _fieldLabel(String text) => Text(text,
+      style: const TextStyle(
           color: AppTheme.textSecondary,
           fontSize: 13,
           fontWeight: FontWeight.w500,
-          fontFamily: 'Poppins',
-        ),
-      );
+          fontFamily: 'Poppins'));
 
-  Widget _sectionLabel(String text) => Text(
-        text,
-        style: const TextStyle(
+  Widget _sectionLabel(String text) => Text(text,
+      style: const TextStyle(
           color: AppTheme.textMuted,
           fontSize: 11,
           fontWeight: FontWeight.w500,
           fontFamily: 'Poppins',
-          letterSpacing: 0.8,
-        ),
-      );
+          letterSpacing: 0.8));
 }
 
-// ── Local field widgets ────────────────────────────────────────────────────────
+// ── Shared field widgets ──────────────────────────────────────────────────────
+
+class SelectableChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color? selectedColor;
+
+  const SelectableChip({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.selectedColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selectedColor ?? AppTheme.primary;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? color.withOpacity(0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: selected ? color : AppTheme.divider),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                color: selected ? color : AppTheme.textSecondary,
+                fontFamily: 'Poppins',
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.normal)),
+      ),
+    );
+  }
+}
 
 class _DropdownField extends StatelessWidget {
   final String label, hint;
@@ -622,11 +695,8 @@ class _DropdownField extends StatelessWidget {
   final ValueChanged<String?> onChanged;
 
   const _DropdownField({
-    required this.label,
-    required this.hint,
-    this.value,
-    required this.items,
-    required this.onChanged,
+    required this.label, required this.hint, this.value,
+    required this.items, required this.onChanged,
   });
 
   @override
@@ -634,15 +704,10 @@ class _DropdownField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: AppTheme.textSecondary,
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            fontFamily: 'Poppins',
-          ),
-        ),
+        Text(label,
+            style: const TextStyle(
+                color: AppTheme.textSecondary, fontSize: 13,
+                fontWeight: FontWeight.w500, fontFamily: 'Poppins')),
         const SizedBox(height: 6),
         Container(
           decoration: BoxDecoration(
@@ -655,21 +720,15 @@ class _DropdownField extends StatelessWidget {
               value: value,
               hint: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  hint,
-                  style: const TextStyle(
-                      color: AppTheme.textMuted, fontFamily: 'Poppins'),
-                ),
+                child: Text(hint,
+                    style: const TextStyle(color: AppTheme.textMuted, fontFamily: 'Poppins')),
               ),
               isExpanded: true,
               dropdownColor: AppTheme.bgCard,
-              style: const TextStyle(
-                  color: AppTheme.textPrimary, fontFamily: 'Poppins'),
+              style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Poppins'),
               padding: const EdgeInsets.symmetric(horizontal: 16),
               borderRadius: BorderRadius.circular(12),
-              items: items
-                  .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                  .toList(),
+              items: items.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
               onChanged: onChanged,
             ),
           ),
@@ -684,26 +743,17 @@ class _DatePickerField extends StatelessWidget {
   final DateTime? value;
   final ValueChanged<DateTime?> onChanged;
 
-  const _DatePickerField({
-    required this.label,
-    this.value,
-    required this.onChanged,
-  });
+  const _DatePickerField({required this.label, this.value, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: AppTheme.textSecondary,
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            fontFamily: 'Poppins',
-          ),
-        ),
+        Text(label,
+            style: const TextStyle(
+                color: AppTheme.textSecondary, fontSize: 13,
+                fontWeight: FontWeight.w500, fontFamily: 'Poppins')),
         const SizedBox(height: 6),
         GestureDetector(
           onTap: () async {
@@ -714,11 +764,8 @@ class _DatePickerField extends StatelessWidget {
               lastDate: DateTime.now(),
               builder: (ctx, child) => Theme(
                 data: ThemeData.dark().copyWith(
-                  colorScheme: const ColorScheme.dark(
-                    primary: AppTheme.primary,
-                    surface: AppTheme.bgCard,
-                  ),
-                ),
+                    colorScheme: const ColorScheme.dark(
+                        primary: AppTheme.primary, surface: AppTheme.bgCard)),
                 child: child!,
               ),
             );
@@ -734,22 +781,15 @@ class _DatePickerField extends StatelessWidget {
             ),
             child: Row(
               children: [
-                const Icon(Icons.calendar_today_outlined,
-                    color: AppTheme.textMuted, size: 18),
+                const Icon(Icons.calendar_today_outlined, color: AppTheme.textMuted, size: 18),
                 const SizedBox(width: 10),
                 Text(
                   value != null
-                      ? '${value!.month.toString().padLeft(2, '0')}/'
-                          '${value!.day.toString().padLeft(2, '0')}/'
-                          '${value!.year}'
+                      ? '${value!.month.toString().padLeft(2, '0')}/${value!.day.toString().padLeft(2, '0')}/${value!.year}'
                       : 'Select date',
                   style: TextStyle(
-                    color: value != null
-                        ? AppTheme.textPrimary
-                        : AppTheme.textMuted,
-                    fontFamily: 'Poppins',
-                    fontSize: 14,
-                  ),
+                      color: value != null ? AppTheme.textPrimary : AppTheme.textMuted,
+                      fontFamily: 'Poppins', fontSize: 14),
                 ),
               ],
             ),
@@ -766,12 +806,8 @@ class _StyleOptionTile extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  const _StyleOptionTile({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
+  const _StyleOptionTile({required this.icon, required this.label,
+      required this.selected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -784,30 +820,23 @@ class _StyleOptionTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? AppTheme.chipSelected : AppTheme.bgDark,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected ? AppTheme.primary : AppTheme.divider,
-          ),
+          border: Border.all(color: selected ? AppTheme.primary : AppTheme.divider),
         ),
         child: Row(
           children: [
-            Icon(icon,
-                color: selected ? Colors.white : AppTheme.textMuted, size: 20),
+            Icon(icon, color: selected ? Colors.white : AppTheme.textMuted, size: 20),
             const SizedBox(width: 14),
-            Text(
-              label,
-              style: TextStyle(
-                color: selected ? Colors.white : AppTheme.textSecondary,
-                fontWeight: FontWeight.w500,
-                fontFamily: 'Poppins',
-                fontSize: 14,
-              ),
-            ),
+            Text(label,
+                style: TextStyle(
+                    color: selected ? Colors.white : AppTheme.textSecondary,
+                    fontWeight: FontWeight.w500,
+                    fontFamily: 'Poppins',
+                    fontSize: 14)),
             const Spacer(),
             AnimatedOpacity(
               duration: const Duration(milliseconds: 180),
               opacity: selected ? 1 : 0,
-              child: const Icon(Icons.check_circle_rounded,
-                  color: Colors.white, size: 20),
+              child: const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
             ),
           ],
         ),

@@ -4,32 +4,24 @@ import 'package:http/http.dart' as http;
 import '../models/models.dart';
 
 class ApiService {
-  static const _base    = 'http://localhost/StudyMatch/studymatch-api';
-  static const _apiKey  = 'studymatch_api_key_2026';
+  static const _base   = 'http://localhost/StudyMatch/studymatch-api';
+  static const _apiKey = 'studymatch_api_key_2026';
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   static Future<Map<String, dynamic>> register({
-    required String id,
-    required String name,
-    required String email,
-    required String password,
+    required String id, required String name,
+    required String email, required String password,
   }) async {
     final res = await http.post(
       Uri.parse('$_base/api.php?action=register'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'id': id,
-        'fullName': name,
-        'email': email,
-        'password': password,
-      }),
+      body: jsonEncode({'id': id, 'fullName': name, 'email': email, 'password': password}),
     );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   static Future<Map<String, dynamic>> login({
-    required String email,
-    required String password,
+    required String email, required String password,
   }) async {
     final res = await http.post(
       Uri.parse('$_base/api.php?action=login'),
@@ -49,8 +41,7 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> sendOtp({
-    required String email,
-    required String name,
+    required String email, required String name,
   }) async {
     final res = await http.post(
       Uri.parse('$_base/api.php?action=send_otp'),
@@ -61,8 +52,7 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> verifyOtp({
-    required String email,
-    required String otp,
+    required String email, required String otp,
   }) async {
     final res = await http.post(
       Uri.parse('$_base/api.php?action=verify_otp'),
@@ -84,26 +74,23 @@ class ApiService {
 
   // ── Users / Matching ──────────────────────────────────────────────────────
   static Future<List<RealUser>> getUsers({
-    String? subject,
-    String? search,
-    String? excludeId,
-    List<String>? myStrengths,
-    List<String>? myWeaknesses,
+    String? subject, String? search, String? excludeId,
+    String? myRole, List<String>? myStrengths, List<String>? myWeaknesses,
   }) async {
     final params = <String, String>{
-      'action':  'get_users',
-      'api_key': _apiKey,
+      'action': 'get_users', 'api_key': _apiKey,
     };
-    if (subject != null && subject.isNotEmpty) params['subject']      = subject;
-    if (search  != null && search.isNotEmpty)  params['search']       = search;
-    if (excludeId != null)                     params['exclude_id']   = excludeId;
+    if (subject   != null && subject.isNotEmpty)   params['subject']      = subject;
+    if (search    != null && search.isNotEmpty)    params['search']       = search;
+    if (excludeId != null)                         params['exclude_id']   = excludeId;
+    if (myRole    != null && myRole.isNotEmpty)    params['my_role']      = myRole;
     if (myStrengths  != null && myStrengths.isNotEmpty)
       params['my_strengths']  = jsonEncode(myStrengths);
     if (myWeaknesses != null && myWeaknesses.isNotEmpty)
       params['my_weaknesses'] = jsonEncode(myWeaknesses);
 
     try {
-      final uri = Uri.parse('$_base/api.php').replace(queryParameters: params);
+      final uri  = Uri.parse('$_base/api.php').replace(queryParameters: params);
       final res  = await http.get(uri);
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       if (data['success'] == true && data['data'] != null) {
@@ -112,39 +99,67 @@ class ApiService {
             .toList();
       }
       return [];
-    } catch (e) {
-      return [];
-    }
+    } catch (e) { return []; }
   }
 
+  // ── ✅ Match endpoints ─────────────────────────────────────────────────────
+  static Future<Map<String, dynamic>> saveMatch({
+    required String userId, required String matchedId,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$_base/api.php?action=save_match&api_key=$_apiKey'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'user_id': userId, 'matched_id': matchedId}),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  static Future<List<RealUser>> getMatches(String userId) async {
+    try {
+      final uri  = Uri.parse('$_base/api.php').replace(queryParameters: {
+        'action': 'get_matches', 'api_key': _apiKey, 'user_id': userId,
+      });
+      final res  = await http.get(uri);
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      if (data['success'] == true && data['data'] != null) {
+        return (data['data'] as List)
+            .map((u) => RealUser.fromJson(u as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    } catch (e) { return []; }
+  }
+
+  static Future<Map<String, dynamic>> removeMatch({
+    required String userId, required String matchedId,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$_base/api.php?action=remove_match&api_key=$_apiKey'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'user_id': userId, 'matched_id': matchedId}),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  // ── Rating ────────────────────────────────────────────────────────────────
   static Future<Map<String, dynamic>> rateUser({
-    required String raterId,
-    required String ratedId,
-    required int score,
+    required String raterId, required String ratedId, required int score,
   }) async {
     final res = await http.post(
       Uri.parse('$_base/api.php?action=rate_user&api_key=$_apiKey'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'rater_id': raterId,
-        'rated_id': ratedId,
-        'score':    score,
-      }),
+      body: jsonEncode({'rater_id': raterId, 'rated_id': ratedId, 'score': score}),
     );
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   // ── Resources ─────────────────────────────────────────────────────────────
   static Future<List<DBResource>> getResources({
-    String? subject,
-    String? search,
+    String? subject, String? search,
   }) async {
-    final params = <String, String>{
-      'action':  'get_resources',
-      'api_key': _apiKey,
-    };
+    final params = <String, String>{'action': 'get_resources', 'api_key': _apiKey};
     if (subject != null && subject != 'All') params['subject'] = subject;
-    if (search  != null && search.isNotEmpty) params['search']  = search;
+    if (search  != null && search.isNotEmpty) params['search'] = search;
 
     try {
       final uri  = Uri.parse('$_base/api.php').replace(queryParameters: params);
@@ -156,27 +171,23 @@ class ApiService {
             .toList();
       }
       return [];
-    } catch (e) {
-      return [];
-    }
+    } catch (e) { return []; }
   }
 
   static Future<Map<String, dynamic>> uploadResource({
-    required String uploaderId,
-    required String title,
-    required String subject,
-    required String description,
-    required Uint8List fileBytes,
-    required String fileName,
+    required String uploaderId, required String title,
+    required String subject,    required String description,
+    required String authorName, // ✅ NEW
+    required Uint8List fileBytes, required String fileName,
   }) async {
     final uri     = Uri.parse('$_base/api.php?action=upload_resource&api_key=$_apiKey');
     final request = http.MultipartRequest('POST', uri);
-    request.fields['uploader_id'] = uploaderId;
-    request.fields['title']       = title;
-    request.fields['subject']     = subject;
-    request.fields['description'] = description;
-    request.files.add(http.MultipartFile.fromBytes(
-        'file', fileBytes, filename: fileName));
+    request.fields['uploader_id']  = uploaderId;
+    request.fields['title']        = title;
+    request.fields['subject']      = subject;
+    request.fields['description']  = description;
+    request.fields['author_name']  = authorName; // ✅
+    request.files.add(http.MultipartFile.fromBytes('file', fileBytes, filename: fileName));
     final streamed = await request.send();
     final res      = await http.Response.fromStream(streamed);
     return jsonDecode(res.body) as Map<String, dynamic>;

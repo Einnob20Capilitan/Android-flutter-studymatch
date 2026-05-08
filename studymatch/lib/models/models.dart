@@ -11,6 +11,7 @@ class UserModel {
   DateTime? dateOfBirth;
   String? gender;
   String? bio;
+  String role; // 'student' or 'tutor'
   List<String> subjects;
   List<String> learningStyles;
   List<String> studyStyles;
@@ -32,6 +33,7 @@ class UserModel {
     this.dateOfBirth,
     this.gender,
     this.bio,
+    this.role = 'student',
     this.subjects = const [],
     this.learningStyles = const [],
     this.studyStyles = const [],
@@ -52,26 +54,44 @@ class UserModel {
         topic: json['topic'] as String?,
         yearLevel: json['yearLevel'] as String?,
         dateOfBirth: json['dateOfBirth'] != null
-            ? DateTime.tryParse(json['dateOfBirth'] as String) : null,
+            ? DateTime.tryParse(json['dateOfBirth'] as String)
+            : null,
         gender: json['gender'] as String?,
         bio: json['bio'] as String?,
+        role: json['role'] as String? ?? 'student',
         subjects: _toStringList(json['subjects']),
         learningStyles: _toStringList(json['learningStyles']),
         studyStyles: _toStringList(json['studyStyles']),
-        availability: json['availability'] != null && json['availability'] is Map
-            ? (json['availability'] as Map).map(
-                (k, v) => MapEntry(k.toString(),
-                    v is List ? List<String>.from(v) : <String>[]))
-            : {},
+        availability: _toAvailabilityMap(json['availability']),
         strengths: _toStringList(json['strengths']),
         weaknesses: _toStringList(json['weaknesses']),
         onboardingComplete: json['onboardingComplete'] as bool? ?? false,
       );
 
+  // ── Safe list parser — handles null, List, and unexpected types ──────────
   static List<String> _toStringList(dynamic val) {
     if (val == null) return [];
-    if (val is List) return List<String>.from(val);
+    if (val is List) {
+      return val.map((e) => e?.toString() ?? '').where((e) => e.isNotEmpty).toList();
+    }
     return [];
+  }
+
+  // ── Safe availability map parser — handles null, wrong types, bad data ──
+  static Map<String, List<String>> _toAvailabilityMap(dynamic val) {
+    if (val == null || val is! Map) return {};
+    try {
+      return (val as Map).map(
+        (k, v) => MapEntry(
+          k.toString(),
+          v is List
+              ? v.map((e) => e?.toString() ?? '').where((e) => e.isNotEmpty).toList()
+              : <String>[],
+        ),
+      );
+    } catch (_) {
+      return {};
+    }
   }
 
   Map<String, dynamic> toJson() => {
@@ -87,6 +107,7 @@ class UserModel {
         'dateOfBirth': dateOfBirth?.toIso8601String(),
         'gender': gender,
         'bio': bio,
+        'role': role,
         'subjects': subjects,
         'learningStyles': learningStyles,
         'studyStyles': studyStyles,
@@ -95,8 +116,17 @@ class UserModel {
         'weaknesses': weaknesses,
         'onboardingComplete': onboardingComplete,
       };
+
+  bool get isTutor   => role == 'tutor';
+  bool get isStudent => role == 'student';
+
+  String get roleLabel => isTutor ? 'Tutor' : 'Student';
+  String get roleEmoji => isTutor ? '🏫' : '🎓';
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// RealUser — used in match cards and conversations
+// ═════════════════════════════════════════════════════════════════════════════
 class RealUser {
   final String id;
   final String fullName;
@@ -105,6 +135,7 @@ class RealUser {
   final String? department;
   final String? profilePhotoUrl;
   final String? bio;
+  final String role; // 'student' or 'tutor'
   final List<String> subjects;
   final List<String> learningStyles;
   final List<String> studyStyles;
@@ -122,6 +153,7 @@ class RealUser {
     this.department,
     this.profilePhotoUrl,
     this.bio,
+    this.role = 'student',
     this.subjects = const [],
     this.learningStyles = const [],
     this.studyStyles = const [],
@@ -140,19 +172,27 @@ class RealUser {
         department: json['department'] as String?,
         profilePhotoUrl: json['profilePhotoUrl'] as String?,
         bio: json['bio'] as String?,
+        role: json['role'] as String? ?? 'student',
         subjects: UserModel._toStringList(json['subjects']),
         learningStyles: UserModel._toStringList(json['learningStyles']),
         studyStyles: UserModel._toStringList(json['studyStyles']),
         strengths: UserModel._toStringList(json['strengths']),
         weaknesses: UserModel._toStringList(json['weaknesses']),
         rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
-        ratingCount: json['ratingCount'] as int? ?? 0,
-        compatibilityScore: json['compatibilityScore'] as int? ?? 0,
+        ratingCount: (json['ratingCount'] as num?)?.toInt() ?? 0,
+        compatibilityScore: (json['compatibilityScore'] as num?)?.toInt() ?? 0,
       );
 
-  String get initials => fullName.isNotEmpty ? fullName[0].toUpperCase() : 'U';
+  String get initials  => fullName.isNotEmpty ? fullName[0].toUpperCase() : 'U';
+  bool   get isTutor   => role == 'tutor';
+  bool   get isStudent => role == 'student';
+  String get roleLabel => isTutor ? 'Tutor' : 'Student';
+  String get roleEmoji => isTutor ? '🏫' : '🎓';
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// DBResource
+// ═════════════════════════════════════════════════════════════════════════════
 class DBResource {
   final String id;
   final String title;
@@ -186,6 +226,9 @@ class DBResource {
       );
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// Message
+// ═════════════════════════════════════════════════════════════════════════════
 class Message {
   final String id;
   final String senderId;
@@ -202,6 +245,9 @@ class Message {
   });
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// Conversation
+// ═════════════════════════════════════════════════════════════════════════════
 class Conversation {
   final String id;
   final RealUser participant;
@@ -215,7 +261,7 @@ class Conversation {
     required this.lastActivity,
   });
 
-  Message? get lastMessage => messages.isNotEmpty ? messages.last : null;
-  int get unreadCount =>
+  Message? get lastMessage  => messages.isNotEmpty ? messages.last : null;
+  int      get unreadCount  =>
       messages.where((m) => !m.isRead && m.senderId != 'current_user').length;
 }

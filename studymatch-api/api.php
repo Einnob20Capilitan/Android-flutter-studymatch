@@ -35,8 +35,6 @@ if (!in_array($action, $publicRoutes) && $apiKey !== API_KEY) {
 
 try {
     $pdo = getDB();
-
-    // ✅ Fix collation mismatch for all queries in this connection
     $pdo->exec("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
     $pdo->exec("SET collation_connection = utf8mb4_unicode_ci");
 
@@ -53,6 +51,10 @@ try {
         case 'rate_user':        handleRateUser($pdo, $body);        break;
         case 'get_resources':    handleGetResources($pdo);           break;
         case 'upload_resource':  handleUploadResource($pdo);         break;
+        // ✅ NEW match endpoints
+        case 'save_match':       handleSaveMatch($pdo, $body);       break;
+        case 'get_matches':      handleGetMatches($pdo);             break;
+        case 'remove_match':     handleRemoveMatch($pdo, $body);     break;
         default:
             respond(false, 'Unknown action', null, 404);
     }
@@ -69,7 +71,19 @@ function respond(bool $success, string $message, $data = null, int $code = 200):
     exit;
 }
 
-// ── Handlers ──────────────────────────────────────────────────────────────────
+function safeJsonArray($val): array {
+    if (empty($val)) return [];
+    $decoded = json_decode($val, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function safeJsonObject($val): array {
+    if (empty($val)) return [];
+    $decoded = json_decode($val, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+// ── Auth Handlers ─────────────────────────────────────────────────────────────
 
 function handleRegister(PDO $pdo, array $b): void {
     $id       = trim($b['id'] ?? uniqid('u_', true));
@@ -89,6 +103,10 @@ function handleRegister(PDO $pdo, array $b): void {
     $pdo->prepare('INSERT INTO users (id, full_name, email, password) VALUES (?,?,?,?)')
         ->execute([$id, $name, $email, password_hash($password, PASSWORD_BCRYPT)]);
 
+    // Auto-create empty profile row
+    $pdo->prepare('INSERT INTO profiles (user_id, role, onboarding_complete) VALUES (?,?,?)')
+        ->execute([$id, 'student', 0]);
+
     respond(true, 'Account created successfully', ['id' => $id]);
 }
 
@@ -104,7 +122,7 @@ function handleLogin(PDO $pdo, array $b): void {
                p.date_of_birth, p.gender, p.subjects, p.learning_styles,
                p.study_styles, p.availability, p.strengths, p.weaknesses,
                p.profile_photo_url, p.bio, p.onboarding_complete,
-               p.rating, p.rating_count
+               p.rating, p.rating_count, p.role
         FROM users u
         LEFT JOIN profiles p ON u.id = p.user_id
         WHERE u.email = ?
@@ -179,10 +197,8 @@ function handleVerifyOtp(PDO $pdo, array $b): void {
     if (!password_verify($otp, $row['otp']))
         respond(false, 'Invalid OTP', null, 401);
 
-    $pdo->prepare('UPDATE otp_tokens SET used = 1 WHERE id = ?')
-        ->execute([$row['id']]);
-    $pdo->prepare('UPDATE users SET email_verified = 1 WHERE email = ?')
-        ->execute([$email]);
+    $pdo->prepare('UPDATE otp_tokens SET used = 1 WHERE id = ?')->execute([$row['id']]);
+    $pdo->prepare('UPDATE users SET email_verified = 1 WHERE email = ?')->execute([$email]);
 
     respond(true, 'Email verified successfully');
 }
@@ -196,9 +212,7 @@ function handleForgotPassword(PDO $pdo, array $b): void {
     $stmt->execute([$email]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$user) {
-        respond(true, 'If this email exists, a reset link was sent'); return;
-    }
+    if (!$user) { respond(true, 'If this email exists, a reset link was sent'); return; }
 
     $token   = bin2hex(random_bytes(32));
     $expires = time() + 3600;
@@ -208,7 +222,7 @@ function handleForgotPassword(PDO $pdo, array $b): void {
 
     $resetLink = 'http://localhost/StudyMatch/studymatch-api/reset_password_page.php'
                . '?token=' . $token . '&email=' . urlencode($email);
-    $name      = $user['full_name'];
+    $name = $user['full_name'];
 
     $mail = new PHPMailer(true);
     try {
@@ -232,9 +246,13 @@ function handleForgotPassword(PDO $pdo, array $b): void {
     }
 }
 
+// ── Profile ───────────────────────────────────────────────────────────────────
+
 function handleUpdateProfile(PDO $pdo, array $b): void {
     $id = trim($b['id'] ?? '');
     if (empty($id)) respond(false, 'User ID required', null, 400);
+
+    $role = $b['role'] ?? 'student';
 
     $stmt = $pdo->prepare('SELECT user_id FROM profiles WHERE user_id = ?');
     $stmt->execute([$id]);
@@ -243,12 +261,13 @@ function handleUpdateProfile(PDO $pdo, array $b): void {
     if ($exists) {
         $pdo->prepare('
             UPDATE profiles SET
-                school=?, department=?, topic=?, year_level=?,
+                role=?, school=?, department=?, topic=?, year_level=?,
                 date_of_birth=?, gender=?, subjects=?, learning_styles=?,
                 study_styles=?, availability=?, strengths=?, weaknesses=?,
                 profile_photo_url=?, bio=?, onboarding_complete=?
             WHERE user_id=?
         ')->execute([
+            $role,
             $b['school']      ?? null,
             $b['department']  ?? null,
             $b['topic']       ?? null,
@@ -258,7 +277,7 @@ function handleUpdateProfile(PDO $pdo, array $b): void {
             json_encode($b['subjects']       ?? []),
             json_encode($b['learningStyles'] ?? []),
             json_encode($b['studyStyles']    ?? []),
-            json_encode($b['availability']   ?? []),
+            json_encode($b['availability']   ?? (object)[]),
             json_encode($b['strengths']      ?? []),
             json_encode($b['weaknesses']     ?? []),
             $b['profilePhotoUrl'] ?? null,
@@ -269,13 +288,13 @@ function handleUpdateProfile(PDO $pdo, array $b): void {
     } else {
         $pdo->prepare('
             INSERT INTO profiles (
-                user_id, school, department, topic, year_level,
+                user_id, role, school, department, topic, year_level,
                 date_of_birth, gender, subjects, learning_styles,
                 study_styles, availability, strengths, weaknesses,
                 profile_photo_url, bio, onboarding_complete
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ')->execute([
-            $id,
+            $id, $role,
             $b['school']      ?? null,
             $b['department']  ?? null,
             $b['topic']       ?? null,
@@ -285,7 +304,7 @@ function handleUpdateProfile(PDO $pdo, array $b): void {
             json_encode($b['subjects']       ?? []),
             json_encode($b['learningStyles'] ?? []),
             json_encode($b['studyStyles']    ?? []),
-            json_encode($b['availability']   ?? []),
+            json_encode($b['availability']   ?? (object)[]),
             json_encode($b['strengths']      ?? []),
             json_encode($b['weaknesses']     ?? []),
             $b['profilePhotoUrl'] ?? null,
@@ -302,18 +321,21 @@ function handleUpdateProfile(PDO $pdo, array $b): void {
     respond(true, 'Profile updated');
 }
 
+// ── Users / Matching ──────────────────────────────────────────────────────────
+
 function handleGetUsers(PDO $pdo): void {
     $subject      = trim($_GET['subject']       ?? '');
     $search       = trim($_GET['search']        ?? '');
     $excludeId    = trim($_GET['exclude_id']    ?? '');
     $myStrengths  = trim($_GET['my_strengths']  ?? '');
     $myWeaknesses = trim($_GET['my_weaknesses'] ?? '');
+    $myRole       = trim($_GET['my_role']       ?? '');
 
-    $sql    = '
+    $sql = '
         SELECT u.id, u.full_name, u.email,
                p.school, p.department, p.subjects, p.learning_styles,
                p.study_styles, p.profile_photo_url, p.rating, p.rating_count,
-               p.strengths, p.weaknesses, p.bio
+               p.strengths, p.weaknesses, p.bio, p.role
         FROM users u
         INNER JOIN profiles p ON u.id = p.user_id
         WHERE u.email_verified = 1 AND p.onboarding_complete = 1
@@ -321,16 +343,32 @@ function handleGetUsers(PDO $pdo): void {
     $params = [];
 
     if (!empty($excludeId)) {
-        $sql .= ' AND u.id != ?'; $params[] = $excludeId;
+        $sql .= ' AND u.id != ?';
+        $params[] = $excludeId;
+
+        // ✅ Also exclude users already matched or passed
+        // Exclude already matched
+        $sql .= ' AND u.id NOT IN (SELECT matched_id FROM matches WHERE user_id = ?)';
+        $params[] = $excludeId;
     }
+
+    if ($myRole === 'student') {
+        $sql .= " AND p.role = 'tutor'";
+    } elseif ($myRole === 'tutor') {
+        $sql .= " AND p.role = 'student'";
+    }
+
     if (!empty($subject)) {
         $sql .= ' AND JSON_CONTAINS(p.subjects, ?)';
         $params[] = json_encode($subject);
     }
+
     if (!empty($search)) {
         $sql .= ' AND (u.full_name LIKE ? OR p.department LIKE ?)';
-        $params[] = "%$search%"; $params[] = "%$search%";
+        $params[] = "%$search%";
+        $params[] = "%$search%";
     }
+
     $sql .= ' ORDER BY p.rating DESC';
 
     $stmt = $pdo->prepare($sql);
@@ -339,15 +377,20 @@ function handleGetUsers(PDO $pdo): void {
 
     $myWeakArr = !empty($myWeaknesses) ? json_decode($myWeaknesses, true) : [];
     $myStrArr  = !empty($myStrengths)  ? json_decode($myStrengths,  true) : [];
+    if (!is_array($myWeakArr)) $myWeakArr = [];
+    if (!is_array($myStrArr))  $myStrArr  = [];
 
     $users = [];
     foreach ($rows as $r) {
-        $theirStr  = json_decode($r['strengths']  ?? '[]', true) ?: [];
-        $theirWeak = json_decode($r['weaknesses'] ?? '[]', true) ?: [];
+        $theirStr  = safeJsonArray($r['strengths']);
+        $theirWeak = safeJsonArray($r['weaknesses']);
+        $theirRole = $r['role'] ?? 'student';
 
-        // ✅ Compatibility: my weak = their strong, my strong = their weak
-        $score = count(array_intersect($myWeakArr, $theirStr))
-               + count(array_intersect($myStrArr,  $theirWeak));
+        if ($theirRole === 'tutor') {
+            $score = count(array_intersect($myWeakArr, $theirStr));
+        } else {
+            $score = count(array_intersect($myStrArr, $theirWeak));
+        }
 
         $users[] = [
             'id'                 => $r['id'],
@@ -355,12 +398,13 @@ function handleGetUsers(PDO $pdo): void {
             'email'              => $r['email'],
             'school'             => $r['school'],
             'department'         => $r['department'],
-            'subjects'           => json_decode($r['subjects']        ?? '[]') ?: [],
-            'learningStyles'     => json_decode($r['learning_styles'] ?? '[]') ?: [],
-            'studyStyles'        => json_decode($r['study_styles']    ?? '[]') ?: [],
+            'role'               => $theirRole,
+            'subjects'           => safeJsonArray($r['subjects']),
+            'learningStyles'     => safeJsonArray($r['learning_styles']),
+            'studyStyles'        => safeJsonArray($r['study_styles']),
             'profilePhotoUrl'    => $r['profile_photo_url'],
-            'rating'             => (float) $r['rating'],
-            'ratingCount'        => (int)   $r['rating_count'],
+            'rating'             => (float)($r['rating'] ?? 0),
+            'ratingCount'        => (int)($r['rating_count'] ?? 0),
             'strengths'          => $theirStr,
             'weaknesses'         => $theirWeak,
             'bio'                => $r['bio'],
@@ -368,8 +412,12 @@ function handleGetUsers(PDO $pdo): void {
         ];
     }
 
-    // ✅ Highest compatibility first
-    usort($users, fn($a, $b) => $b['compatibilityScore'] - $a['compatibilityScore']);
+    usort($users, function($a, $b) {
+        if ($b['compatibilityScore'] !== $a['compatibilityScore'])
+            return $b['compatibilityScore'] - $a['compatibilityScore'];
+        return $b['rating'] <=> $a['rating'];
+    });
+
     respond(true, 'Users fetched', $users);
 }
 
@@ -382,7 +430,7 @@ function handleGetUser(PDO $pdo): void {
                p.date_of_birth, p.gender, p.subjects, p.learning_styles,
                p.study_styles, p.availability, p.strengths, p.weaknesses,
                p.profile_photo_url, p.bio, p.onboarding_complete,
-               p.rating, p.rating_count
+               p.rating, p.rating_count, p.role
         FROM users u
         LEFT JOIN profiles p ON u.id = p.user_id
         WHERE u.id = ?
@@ -413,10 +461,7 @@ function handleRateUser(PDO $pdo, array $b): void {
         ON DUPLICATE KEY UPDATE score = VALUES(score)
     ')->execute([$raterId, $ratedId, $score]);
 
-    $stmt = $pdo->prepare('
-        SELECT AVG(score) as avg, COUNT(*) as cnt
-        FROM ratings WHERE rated_id = ?
-    ');
+    $stmt = $pdo->prepare('SELECT AVG(score) as avg, COUNT(*) as cnt FROM ratings WHERE rated_id = ?');
     $stmt->execute([$ratedId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -425,28 +470,102 @@ function handleRateUser(PDO $pdo, array $b): void {
 
     respond(true, 'Rating submitted', [
         'newRating'   => round($row['avg'], 2),
-        'ratingCount' => (int) $row['cnt'],
+        'ratingCount' => (int)$row['cnt'],
     ]);
 }
+
+// ── ✅ Match Handlers ─────────────────────────────────────────────────────────
+
+function handleSaveMatch(PDO $pdo, array $b): void {
+    $userId    = trim($b['user_id']    ?? '');
+    $matchedId = trim($b['matched_id'] ?? '');
+
+    if (empty($userId) || empty($matchedId))
+        respond(false, 'user_id and matched_id required', null, 400);
+    if ($userId === $matchedId)
+        respond(false, 'Cannot match with yourself', null, 400);
+
+    $pdo->prepare('
+        INSERT IGNORE INTO matches (user_id, matched_id) VALUES (?,?)
+    ')->execute([$userId, $matchedId]);
+
+    respond(true, 'Match saved');
+}
+
+function handleGetMatches(PDO $pdo): void {
+    $userId = trim($_GET['user_id'] ?? '');
+    if (empty($userId)) respond(false, 'user_id required', null, 400);
+
+    $stmt = $pdo->prepare('
+        SELECT u.id, u.full_name, u.email,
+               p.school, p.department, p.subjects, p.learning_styles,
+               p.study_styles, p.profile_photo_url, p.rating, p.rating_count,
+               p.strengths, p.weaknesses, p.bio, p.role,
+               m.created_at as matched_at
+        FROM matches m
+        JOIN users u ON u.id = m.matched_id
+        LEFT JOIN profiles p ON p.user_id = u.id
+        WHERE m.user_id = ?
+        ORDER BY m.created_at DESC
+    ');
+    $stmt->execute([$userId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $matches = array_map(fn($r) => [
+        'id'              => $r['id'],
+        'fullName'        => $r['full_name'],
+        'email'           => $r['email'],
+        'school'          => $r['school'],
+        'department'      => $r['department'],
+        'role'            => $r['role'] ?? 'student',
+        'subjects'        => safeJsonArray($r['subjects']),
+        'learningStyles'  => safeJsonArray($r['learning_styles']),
+        'studyStyles'     => safeJsonArray($r['study_styles']),
+        'profilePhotoUrl' => $r['profile_photo_url'],
+        'rating'          => (float)($r['rating'] ?? 0),
+        'ratingCount'     => (int)($r['rating_count'] ?? 0),
+        'strengths'       => safeJsonArray($r['strengths']),
+        'weaknesses'      => safeJsonArray($r['weaknesses']),
+        'bio'             => $r['bio'],
+        'matchedAt'       => $r['matched_at'],
+        'compatibilityScore' => 0,
+    ], $rows);
+
+    respond(true, 'Matches fetched', $matches);
+}
+
+function handleRemoveMatch(PDO $pdo, array $b): void {
+    $userId    = trim($b['user_id']    ?? '');
+    $matchedId = trim($b['matched_id'] ?? '');
+
+    if (empty($userId) || empty($matchedId))
+        respond(false, 'user_id and matched_id required', null, 400);
+
+    $pdo->prepare('DELETE FROM matches WHERE user_id=? AND matched_id=?')
+        ->execute([$userId, $matchedId]);
+
+    respond(true, 'Match removed');
+}
+
+// ── Resources ─────────────────────────────────────────────────────────────────
 
 function handleGetResources(PDO $pdo): void {
     $subject = trim($_GET['subject'] ?? '');
     $search  = trim($_GET['search']  ?? '');
 
-    $sql    = '
-        SELECT r.*, u.full_name as uploader_name
-        FROM resources r
-        JOIN users u ON r.uploader_id = u.id
-        WHERE 1=1
-    ';
+    $sql    = 'SELECT r.*, u.full_name as uploader_name FROM resources r
+               JOIN users u ON r.uploader_id = u.id WHERE 1=1';
     $params = [];
 
     if (!empty($subject) && $subject !== 'All') {
-        $sql .= ' AND r.subject = ?'; $params[] = $subject;
+        $sql .= ' AND r.subject = ?';
+        $params[] = $subject;
     }
     if (!empty($search)) {
-        $sql .= ' AND (r.title LIKE ? OR r.subject LIKE ?)';
-        $params[] = "%$search%"; $params[] = "%$search%";
+        $sql .= ' AND (r.title LIKE ? OR r.subject LIKE ? OR r.author_name LIKE ?)';
+        $params[] = "%$search%";
+        $params[] = "%$search%";
+        $params[] = "%$search%";
     }
     $sql .= ' ORDER BY r.uploaded_at DESC';
 
@@ -459,6 +578,7 @@ function handleGetResources(PDO $pdo): void {
         'title'        => $r['title'],
         'subject'      => $r['subject'],
         'description'  => $r['description'],
+        'authorName'   => $r['author_name'] ?? null,   // ✅ NEW
         'uploaderName' => $r['uploader_name'],
         'fileUrl'      => $r['file_path']
             ? 'http://localhost/StudyMatch/studymatch-api/' . $r['file_path']
@@ -475,6 +595,7 @@ function handleUploadResource(PDO $pdo): void {
     $title       = trim($_POST['title']   ?? '');
     $subject     = trim($_POST['subject'] ?? '');
     $description = trim($_POST['description'] ?? '');
+    $authorName  = trim($_POST['author_name'] ?? '');  // ✅ NEW
 
     if (empty($uploaderId) || empty($title) || empty($subject))
         respond(false, 'Missing required fields', null, 400);
@@ -489,8 +610,7 @@ function handleUploadResource(PDO $pdo): void {
         if (!in_array($ext, ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt']))
             respond(false, 'File type not allowed', null, 400);
 
-        $fileName = preg_replace('/[^a-z0-9]/i', '_', $uploaderId)
-                  . '_' . time() . '.' . $ext;
+        $fileName = preg_replace('/[^a-z0-9]/i', '_', $uploaderId) . '_' . time() . '.' . $ext;
         if (!move_uploaded_file($_FILES['file']['tmp_name'], $uploadDir . $fileName))
             respond(false, 'Failed to save file', null, 500);
 
@@ -501,16 +621,23 @@ function handleUploadResource(PDO $pdo): void {
     $id = uniqid('res_', true);
     $pdo->prepare('
         INSERT INTO resources
-            (id, uploader_id, title, subject, description, file_name, file_path, file_type)
-        VALUES (?,?,?,?,?,?,?,?)
-    ')->execute([$id, $uploaderId, $title, $subject, $description,
-                 $fileName, $filePath, $fileType]);
+            (id, uploader_id, title, subject, description, author_name, file_name, file_path, file_type)
+        VALUES (?,?,?,?,?,?,?,?,?)
+    ')->execute([$id, $uploaderId, $title, $subject, $description, $authorName, $fileName, $filePath, $fileType]);
 
     respond(true, 'Resource uploaded', ['id' => $id]);
 }
 
 // ── Format helpers ────────────────────────────────────────────────────────────
 function formatUser(array $u): array {
+    $avail = null;
+    if (!empty($u['availability'])) {
+        $decoded = json_decode($u['availability'], true);
+        $avail   = is_array($decoded) ? $decoded : (object)[];
+    } else {
+        $avail = (object)[];
+    }
+
     return [
         'id'                 => $u['id'],
         'fullName'           => $u['full_name'],
@@ -523,40 +650,34 @@ function formatUser(array $u): array {
         'dateOfBirth'        => $u['date_of_birth']      ?? null,
         'gender'             => $u['gender']             ?? null,
         'bio'                => $u['bio']                ?? null,
-        'subjects'           => json_decode($u['subjects']        ?? '[]'),
-        'learningStyles'     => json_decode($u['learning_styles'] ?? '[]'),
-        'studyStyles'        => json_decode($u['study_styles']    ?? '[]'),
-        'availability'       => json_decode($u['availability']    ?? '{}', true) ?: (object)[],
-        'strengths'          => json_decode($u['strengths']       ?? '[]'),
-        'weaknesses'         => json_decode($u['weaknesses']      ?? '[]'),
-        'onboardingComplete' => (bool)($u['onboarding_complete']  ?? false),
-        'rating'             => (float)($u['rating']              ?? 0),
-        'ratingCount'        => (int)($u['rating_count']          ?? 0),
+        'role'               => $u['role']               ?? 'student',
+        'subjects'           => safeJsonArray($u['subjects']        ?? null),
+        'learningStyles'     => safeJsonArray($u['learning_styles'] ?? null),
+        'studyStyles'        => safeJsonArray($u['study_styles']    ?? null),
+        'availability'       => $avail,
+        'strengths'          => safeJsonArray($u['strengths']  ?? null),
+        'weaknesses'         => safeJsonArray($u['weaknesses'] ?? null),
+        'onboardingComplete' => (bool)($u['onboarding_complete'] ?? false),
+        'rating'             => (float)($u['rating']      ?? 0),
+        'ratingCount'        => (int)($u['rating_count']  ?? 0),
     ];
 }
 
 function buildOtpEmail(string $name, string $otp): string {
     $digits = implode('', array_map(
-        fn($d) => "<span style='display:inline-block;width:44px;height:52px;
-                    line-height:52px;margin:0 3px;background:#1e1a3a;
-                    border:2px solid #6C63FF;border-radius:8px;
-                    font-size:24px;font-weight:700;color:#fff;
-                    text-align:center;'>$d</span>",
+        fn($d) => "<span style='display:inline-block;width:44px;height:52px;line-height:52px;margin:0 3px;background:#1e1a3a;border:2px solid #6C63FF;border-radius:8px;font-size:24px;font-weight:700;color:#fff;text-align:center;'>$d</span>",
         str_split($otp)
     ));
     return <<<HTML
 <body style="background:#0d0b1e;font-family:'Segoe UI',sans-serif;padding:40px 16px;">
-  <div style="max-width:480px;margin:0 auto;background:linear-gradient(145deg,#120e2a,#1a1535);
-              border-radius:20px;border:1px solid #2e2850;overflow:hidden;">
+  <div style="max-width:480px;margin:0 auto;background:linear-gradient(145deg,#120e2a,#1a1535);border-radius:20px;border:1px solid #2e2850;overflow:hidden;">
     <div style="background:linear-gradient(135deg,#6C63FF,#a78bfa);padding:28px;text-align:center;">
       <h1 style="color:#fff;margin:0;font-size:22px;">🎓 StudyMatch</h1>
       <p style="color:rgba(255,255,255,0.8);margin:4px 0 0;font-size:13px;">Email Verification</p>
     </div>
     <div style="padding:32px;text-align:center;">
       <p style="color:#c4b8ff;">Hi <strong style="color:#fff;">$name</strong>,</p>
-      <p style="color:#8b7fc7;font-size:14px;margin-bottom:28px;">
-        Your verification code expires in <strong style="color:#a78bfa;">10 minutes</strong>.
-      </p>
+      <p style="color:#8b7fc7;font-size:14px;margin-bottom:28px;">Your verification code expires in <strong style="color:#a78bfa;">10 minutes</strong>.</p>
       <div style="margin-bottom:28px;">$digits</div>
       <p style="color:#6b6490;font-size:12px;">🔒 Never share this code with anyone.</p>
     </div>
@@ -571,25 +692,16 @@ HTML;
 function buildResetEmail(string $name, string $link): string {
     return <<<HTML
 <body style="background:#0d0b1e;font-family:'Segoe UI',sans-serif;padding:40px 16px;">
-  <div style="max-width:480px;margin:0 auto;background:linear-gradient(145deg,#120e2a,#1a1535);
-              border-radius:20px;border:1px solid #2e2850;overflow:hidden;">
+  <div style="max-width:480px;margin:0 auto;background:linear-gradient(145deg,#120e2a,#1a1535);border-radius:20px;border:1px solid #2e2850;overflow:hidden;">
     <div style="background:linear-gradient(135deg,#6C63FF,#a78bfa);padding:28px;text-align:center;">
       <h1 style="color:#fff;margin:0;font-size:22px;">🎓 StudyMatch</h1>
       <p style="color:rgba(255,255,255,0.8);margin:4px 0 0;font-size:13px;">Password Reset</p>
     </div>
     <div style="padding:32px;text-align:center;">
       <p style="color:#c4b8ff;">Hi <strong style="color:#fff;">$name</strong>,</p>
-      <p style="color:#8b7fc7;font-size:14px;margin-bottom:24px;">
-        Click below to reset your password. Expires in
-        <strong style="color:#a78bfa;">1 hour</strong>.
-      </p>
-      <a href="$link" style="display:inline-block;padding:14px 32px;
-         background:linear-gradient(135deg,#6C63FF,#a78bfa);
-         color:#fff;text-decoration:none;border-radius:12px;
-         font-weight:700;font-size:15px;">Reset Password</a>
-      <p style="color:#6b6490;font-size:12px;margin-top:24px;">
-        Didn't request this? Ignore this email.
-      </p>
+      <p style="color:#8b7fc7;font-size:14px;margin-bottom:24px;">Click below to reset your password. Expires in <strong style="color:#a78bfa;">1 hour</strong>.</p>
+      <a href="$link" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#6C63FF,#a78bfa);color:#fff;text-decoration:none;border-radius:12px;font-weight:700;font-size:15px;">Reset Password</a>
+      <p style="color:#6b6490;font-size:12px;margin-top:24px;">Didn't request this? Ignore this email.</p>
     </div>
     <div style="border-top:1px solid #2e2850;padding:16px;text-align:center;">
       <p style="color:#3d3660;font-size:11px;margin:0;">© 2026 StudyMatch</p>

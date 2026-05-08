@@ -3,10 +3,10 @@ import 'package:provider/provider.dart';
 import '../../services/app_state.dart';
 import '../../utils/app_theme.dart';
 import '../../models/models.dart';
+import 'user_profile_screen.dart';
 
 class MatchScreen extends StatefulWidget {
   const MatchScreen({super.key});
-
   @override
   State<MatchScreen> createState() => _MatchScreenState();
 }
@@ -63,65 +63,120 @@ class _MatchScreenState extends State<MatchScreen>
       begin: Offset.zero,
       end: Offset(like ? 2 : -2, 0),
     ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
-    _rotate = Tween<double>(begin: 0, end: like ? 0.15 : -0.15).animate(_ctrl);
+    _rotate =
+        Tween<double>(begin: 0, end: like ? 0.15 : -0.15).animate(_ctrl);
     _ctrl.forward().then((_) {
       final userId = state.matchUsers.first.id;
-      if (like) state.likeUser(userId);
-      else state.passUser(userId);
+      if (like) {
+        state.likeUser(userId); // ✅ saves to matchedUsers
+        _showMatchBanner(state.matchUsers.isNotEmpty
+            ? state.matchUsers.first
+            : null);
+      } else {
+        state.passUser(userId); // ✅ saves to passedIds
+      }
       _ctrl.reset();
-      setState(() { _liking = null; _dragOffset = Offset.zero; });
+      setState(() {
+        _liking = null;
+        _dragOffset = Offset.zero;
+      });
     });
   }
 
+  void _showMatchBanner(RealUser? user) {
+    if (user == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Text('🎉 ', style: TextStyle(fontSize: 18)),
+            Expanded(
+              child: Text(
+                "You matched with ${user.fullName}! Check Messages.",
+                style: const TextStyle(
+                    fontFamily: 'Poppins', fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: AppTheme.success,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
   void _showRatingDialog(BuildContext context, RealUser user) {
-    int _selectedScore = 0;
+    int selectedScore = 0;
     showDialog(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (ctx, setS) => AlertDialog(
           backgroundColor: AppTheme.bgCard,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16)),
           title: Text('Rate ${user.fullName}',
-              style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Poppins', fontWeight: FontWeight.bold)),
+              style: const TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontFamily: 'Poppins',
+                  fontWeight: FontWeight.bold)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text('How would you rate this study partner?',
-                  style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Poppins', fontSize: 13)),
+                  style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontFamily: 'Poppins',
+                      fontSize: 13)),
               const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(5, (i) => GestureDetector(
-                  onTap: () => setS(() => _selectedScore = i + 1),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: Icon(
-                      i < _selectedScore ? Icons.star_rounded : Icons.star_border_rounded,
-                      color: AppTheme.warning,
-                      size: 36,
-                    ),
-                  ),
-                )),
+                children: List.generate(
+                    5,
+                    (i) => GestureDetector(
+                          onTap: () => setS(() => selectedScore = i + 1),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 4),
+                            child: Icon(
+                              i < selectedScore
+                                  ? Icons.star_rounded
+                                  : Icons.star_border_rounded,
+                              color: AppTheme.warning,
+                              size: 36,
+                            ),
+                          ),
+                        )),
               ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel', style: TextStyle(color: AppTheme.textMuted)),
+              child: const Text('Cancel',
+                  style: TextStyle(color: AppTheme.textMuted)),
             ),
             ElevatedButton(
-              onPressed: _selectedScore == 0 ? null : () async {
-                Navigator.pop(ctx);
-                await context.read<AppState>().rateUser(
-                  ratedId: user.id, score: _selectedScore);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Rating submitted!'), backgroundColor: AppTheme.success));
-                }
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
-              child: const Text('Submit', style: TextStyle(fontFamily: 'Poppins')),
+              onPressed: selectedScore == 0
+                  ? null
+                  : () async {
+                      Navigator.pop(ctx);
+                      await context
+                          .read<AppState>()
+                          .rateUser(ratedId: user.id, score: selectedScore);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('Rating submitted!'),
+                              backgroundColor: AppTheme.success));
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary),
+              child: const Text('Submit',
+                  style: TextStyle(fontFamily: 'Poppins')),
             ),
           ],
         ),
@@ -144,22 +199,38 @@ class _MatchScreenState extends State<MatchScreen>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Row(children: [
-                          Container(width: 8, height: 8,
-                              decoration: const BoxDecoration(color: AppTheme.success, shape: BoxShape.circle)),
-                          const SizedBox(width: 6),
-                          const Text('StudyMatch',
-                              style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold,
-                                  fontSize: 18, fontFamily: 'Poppins')),
-                        ]),
-                        const Text('Find your study partner',
-                            style: TextStyle(color: AppTheme.textMuted, fontSize: 12, fontFamily: 'Poppins')),
-                      ]),
+                      Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(children: [
+                              Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: const BoxDecoration(
+                                      color: AppTheme.success,
+                                      shape: BoxShape.circle)),
+                              const SizedBox(width: 6),
+                              const Text('StudyMatch',
+                                  style: TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                      fontFamily: 'Poppins')),
+                            ]),
+                            const Text('Find your study partner',
+                                style: TextStyle(
+                                    color: AppTheme.textMuted,
+                                    fontSize: 12,
+                                    fontFamily: 'Poppins')),
+                          ]),
                       IconButton(
-                        icon: Icon(_showSearch ? Icons.search_off : Icons.search,
+                        icon: Icon(
+                            _showSearch
+                                ? Icons.search_off
+                                : Icons.search,
                             color: AppTheme.textSecondary),
-                        onPressed: () => setState(() => _showSearch = !_showSearch),
+                        onPressed: () =>
+                            setState(() => _showSearch = !_showSearch),
                       ),
                     ],
                   ),
@@ -177,55 +248,76 @@ class _MatchScreenState extends State<MatchScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Search field
                           TextField(
                             controller: _searchCtrl,
-                            style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Poppins'),
+                            style: const TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontFamily: 'Poppins'),
                             decoration: InputDecoration(
                               hintText: 'Search by name...',
-                              hintStyle: const TextStyle(color: AppTheme.textMuted, fontFamily: 'Poppins'),
-                              prefixIcon: const Icon(Icons.search, color: AppTheme.textMuted, size: 20),
+                              hintStyle: const TextStyle(
+                                  color: AppTheme.textMuted,
+                                  fontFamily: 'Poppins'),
+                              prefixIcon: const Icon(Icons.search,
+                                  color: AppTheme.textMuted, size: 20),
                               filled: true,
                               fillColor: AppTheme.inputBg,
                               border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide: BorderSide.none,
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide.none),
+                              contentPadding:
+                                  const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 10),
                             ),
                             onSubmitted: (_) => _search(),
                           ),
                           const SizedBox(height: 12),
-                          // Subject filter
                           const Text('Filter by Subject',
-                              style: TextStyle(color: AppTheme.textMuted, fontSize: 12,
-                                  fontFamily: 'Poppins', letterSpacing: 0.5)),
+                              style: TextStyle(
+                                  color: AppTheme.textMuted,
+                                  fontSize: 12,
+                                  fontFamily: 'Poppins',
+                                  letterSpacing: 0.5)),
                           const SizedBox(height: 8),
                           SizedBox(
                             height: 36,
                             child: ListView.separated(
                               scrollDirection: Axis.horizontal,
                               itemCount: _subjects.length,
-                              separatorBuilder: (_, __) => const SizedBox(width: 8),
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(width: 8),
                               itemBuilder: (_, i) {
                                 final s = _subjects[i];
                                 final sel = _selectedSubject == s;
                                 return GestureDetector(
-                                  onTap: () => setState(() => _selectedSubject = s),
+                                  onTap: () => setState(
+                                      () => _selectedSubject = s),
                                   child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 150),
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                    duration: const Duration(
+                                        milliseconds: 150),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 14, vertical: 6),
                                     decoration: BoxDecoration(
-                                      color: sel ? AppTheme.primary : AppTheme.inputBg,
-                                      borderRadius: BorderRadius.circular(20),
+                                      color: sel
+                                          ? AppTheme.primary
+                                          : AppTheme.inputBg,
+                                      borderRadius:
+                                          BorderRadius.circular(20),
                                       border: Border.all(
-                                          color: sel ? AppTheme.primary : AppTheme.divider),
+                                          color: sel
+                                              ? AppTheme.primary
+                                              : AppTheme.divider),
                                     ),
                                     child: Text(s,
                                         style: TextStyle(
-                                          color: sel ? Colors.white : AppTheme.textSecondary,
-                                          fontFamily: 'Poppins', fontSize: 12,
-                                          fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
+                                          color: sel
+                                              ? Colors.white
+                                              : AppTheme.textSecondary,
+                                          fontFamily: 'Poppins',
+                                          fontSize: 12,
+                                          fontWeight: sel
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
                                         )),
                                   ),
                                 );
@@ -237,11 +329,17 @@ class _MatchScreenState extends State<MatchScreen>
                             width: double.infinity,
                             child: ElevatedButton.icon(
                               onPressed: _search,
-                              icon: const Icon(Icons.search, size: 16),
-                              label: const Text('Search', style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600)),
+                              icon:
+                                  const Icon(Icons.search, size: 16),
+                              label: const Text('Search',
+                                  style: TextStyle(
+                                      fontFamily: 'Poppins',
+                                      fontWeight: FontWeight.w600)),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppTheme.primary,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(10)),
                               ),
                             ),
                           ),
@@ -258,12 +356,16 @@ class _MatchScreenState extends State<MatchScreen>
             // Cards
             Expanded(
               child: state.loadingUsers
-                  ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                          color: AppTheme.primary))
                   : state.matchUsers.isEmpty
-                      ? _EmptyState(onRefresh: () => state.loadMatchUsers())
+                      ? _EmptyState(
+                          onRefresh: () => state.loadMatchUsers())
                       : Stack(
                           alignment: Alignment.center,
                           children: [
+                            // Background card
                             if (state.matchUsers.length > 1)
                               Positioned(
                                 top: 10,
@@ -273,20 +375,29 @@ class _MatchScreenState extends State<MatchScreen>
                                     user: state.matchUsers[1],
                                     overlay: null,
                                     onRate: () {},
+                                    onTap: () {},
                                   ),
                                 ),
                               ),
+                            // Front card — tap to view profile
                             GestureDetector(
                               onPanUpdate: (d) => setState(() {
                                 _dragOffset += d.delta;
-                                _liking = _dragOffset.dx > 40 ? true
-                                    : (_dragOffset.dx < -40 ? false : null);
+                                _liking = _dragOffset.dx > 40
+                                    ? true
+                                    : (_dragOffset.dx < -40
+                                        ? false
+                                        : null);
                               }),
                               onPanEnd: (d) {
-                                if (_dragOffset.dx.abs() > 100)
+                                if (_dragOffset.dx.abs() > 100) {
                                   _swipe(_dragOffset.dx > 0, state);
-                                else
-                                  setState(() { _dragOffset = Offset.zero; _liking = null; });
+                                } else {
+                                  setState(() {
+                                    _dragOffset = Offset.zero;
+                                    _liking = null;
+                                  });
+                                }
                               },
                               child: Transform.translate(
                                 offset: _dragOffset,
@@ -297,7 +408,17 @@ class _MatchScreenState extends State<MatchScreen>
                                     child: _MatchCard(
                                       user: state.matchUsers.first,
                                       overlay: _liking,
-                                      onRate: () => _showRatingDialog(context, state.matchUsers.first),
+                                      onRate: () => _showRatingDialog(
+                                          context,
+                                          state.matchUsers.first),
+                                      // ✅ tap card → view profile
+                                      onTap: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => UserProfileScreen(
+                                              user: state.matchUsers.first),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -313,13 +434,29 @@ class _MatchScreenState extends State<MatchScreen>
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _SwipeButton(icon: Icons.close, color: AppTheme.error,
-                      onTap: state.matchUsers.isNotEmpty ? () => _swipe(false, state) : null),
-                  _SwipeButton(icon: Icons.star_rounded, color: AppTheme.warning,
-                      onTap: state.matchUsers.isNotEmpty
-                          ? () => _showRatingDialog(context, state.matchUsers.first) : null),
-                  _SwipeButton(icon: Icons.favorite, color: AppTheme.success, size: 64,
-                      onTap: state.matchUsers.isNotEmpty ? () => _swipe(true, state) : null),
+                  _SwipeButton(
+                    icon: Icons.close,
+                    color: AppTheme.error,
+                    onTap: state.matchUsers.isNotEmpty
+                        ? () => _swipe(false, state)
+                        : null,
+                  ),
+                  _SwipeButton(
+                    icon: Icons.star_rounded,
+                    color: AppTheme.warning,
+                    onTap: state.matchUsers.isNotEmpty
+                        ? () => _showRatingDialog(
+                            context, state.matchUsers.first)
+                        : null,
+                  ),
+                  _SwipeButton(
+                    icon: Icons.favorite,
+                    color: AppTheme.success,
+                    size: 64,
+                    onTap: state.matchUsers.isNotEmpty
+                        ? () => _swipe(true, state)
+                        : null,
+                  ),
                 ],
               ),
             ),
@@ -330,135 +467,228 @@ class _MatchScreenState extends State<MatchScreen>
   }
 }
 
+// ── Match Card ────────────────────────────────────────────────────────────────
 class _MatchCard extends StatelessWidget {
   final RealUser user;
   final bool? overlay;
   final VoidCallback onRate;
+  final VoidCallback onTap; // ✅ tap to view profile
 
-  const _MatchCard({required this.user, this.overlay, required this.onRate});
+  const _MatchCard({
+    required this.user,
+    this.overlay,
+    required this.onRate,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: MediaQuery.of(context).size.width - 48,
-      margin: const EdgeInsets.symmetric(horizontal: 24),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF2D1F5E), Color(0xFF1A1730)],
+    final isTutor = user.role == 'tutor';
+    final roleColor = isTutor ? AppTheme.success : const Color(0xFF3B82F6);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: MediaQuery.of(context).size.width - 48,
+        margin: const EdgeInsets.symmetric(horizontal: 24),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF2D1F5E), Color(0xFF1A1730)],
+          ),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: overlay == true
+                ? AppTheme.success.withOpacity(0.5)
+                : overlay == false
+                    ? AppTheme.error.withOpacity(0.5)
+                    : AppTheme.divider,
+            width: overlay != null ? 2 : 1,
+          ),
         ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: overlay == true ? AppTheme.success.withOpacity(0.5)
-              : overlay == false ? AppTheme.error.withOpacity(0.5)
-              : AppTheme.divider,
-          width: overlay != null ? 2 : 1,
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: Stack(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      // Avatar
-                      Container(
-                        width: 72, height: 72,
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(colors: [AppTheme.primary, AppTheme.accent]),
-                          shape: BoxShape.circle,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 72, height: 72,
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                                colors: [AppTheme.primary, AppTheme.accent]),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Center(
+                              child: Text(user.initials,
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 28,
+                                      fontFamily: 'Poppins'))),
                         ),
-                        child: Center(child: Text(user.initials,
-                            style: const TextStyle(color: Colors.white,
-                                fontWeight: FontWeight.bold, fontSize: 28, fontFamily: 'Poppins'))),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(user.fullName,
-                                style: const TextStyle(color: AppTheme.textPrimary,
-                                    fontWeight: FontWeight.bold, fontSize: 18, fontFamily: 'Poppins')),
-                            if (user.department != null) ...[
-                              const SizedBox(height: 2),
-                              Text(user.department!,
-                                  style: const TextStyle(color: AppTheme.textSecondary,
-                                      fontFamily: 'Poppins', fontSize: 13)),
-                            ],
-                            if (user.school != null) ...[
-                              const SizedBox(height: 2),
-                              Text(user.school!,
-                                  style: const TextStyle(color: AppTheme.textMuted,
-                                      fontFamily: 'Poppins', fontSize: 12)),
-                            ],
-                            const SizedBox(height: 6),
-                            // Rating
-                            GestureDetector(
-                              onTap: onRate,
-                              child: Row(
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
                                 children: [
-                                  ...List.generate(5, (i) => Icon(
-                                    i < user.rating.round()
-                                        ? Icons.star_rounded : Icons.star_border_rounded,
-                                    color: AppTheme.warning, size: 16,
-                                  )),
-                                  const SizedBox(width: 4),
-                                  Text('${user.rating.toStringAsFixed(1)} (${user.ratingCount})',
-                                      style: const TextStyle(color: AppTheme.textMuted,
-                                          fontSize: 11, fontFamily: 'Poppins')),
+                                  Expanded(
+                                    child: Text(user.fullName,
+                                        style: const TextStyle(
+                                            color: AppTheme.textPrimary,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 18,
+                                            fontFamily: 'Poppins')),
+                                  ),
+                                  // Role badge on card
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: roleColor.withOpacity(0.2),
+                                      borderRadius:
+                                          BorderRadius.circular(10),
+                                      border: Border.all(
+                                          color:
+                                              roleColor.withOpacity(0.5)),
+                                    ),
+                                    child: Text(
+                                      isTutor ? '🏫' : '🎓',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ),
                                 ],
                               ),
-                            ),
-                          ],
+                              if (user.department != null) ...[
+                                const SizedBox(height: 2),
+                                Text(user.department!,
+                                    style: const TextStyle(
+                                        color: AppTheme.textSecondary,
+                                        fontFamily: 'Poppins',
+                                        fontSize: 13)),
+                              ],
+                              if (user.school != null) ...[
+                                const SizedBox(height: 2),
+                                Text(user.school!,
+                                    style: const TextStyle(
+                                        color: AppTheme.textMuted,
+                                        fontFamily: 'Poppins',
+                                        fontSize: 12)),
+                              ],
+                              const SizedBox(height: 6),
+                              GestureDetector(
+                                onTap: onRate,
+                                child: Row(
+                                  children: [
+                                    ...List.generate(
+                                        5,
+                                        (i) => Icon(
+                                              i < user.rating.round()
+                                                  ? Icons.star_rounded
+                                                  : Icons
+                                                      .star_border_rounded,
+                                              color: AppTheme.warning,
+                                              size: 16,
+                                            )),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                        '${user.rating.toStringAsFixed(1)} (${user.ratingCount})',
+                                        style: const TextStyle(
+                                            color: AppTheme.textMuted,
+                                            fontSize: 11,
+                                            fontFamily: 'Poppins')),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    const Divider(color: AppTheme.divider),
+                    const SizedBox(height: 12),
+                    if (user.subjects.isNotEmpty) ...[
+                      _CardSection(
+                          title: '📚 Subjects', chips: user.subjects),
+                      const SizedBox(height: 12),
                     ],
-                  ),
-                  const SizedBox(height: 20),
-                  const Divider(color: AppTheme.divider),
-                  const SizedBox(height: 12),
-                  if (user.subjects.isNotEmpty) ...[
-                    _CardSection(title: '📚 Subjects', chips: user.subjects),
-                    const SizedBox(height: 12),
-                  ],
-                  if (user.learningStyles.isNotEmpty) ...[
-                    _CardSection(title: '🧠 Learning Style', chips: user.learningStyles),
-                    const SizedBox(height: 12),
-                  ],
-                  if (user.studyStyles.isNotEmpty)
-                    _CardSection(title: '👥 Study Format', chips: user.studyStyles),
-                ],
-              ),
-            ),
-            if (overlay != null)
-              Positioned.fill(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 100),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
-                    color: (overlay! ? AppTheme.success : AppTheme.error).withOpacity(0.15),
-                  ),
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: (overlay! ? AppTheme.success : AppTheme.error).withOpacity(0.9),
-                        shape: BoxShape.circle,
+                    if (user.strengths.isNotEmpty) ...[
+                      _CardSection(
+                        title: isTutor
+                            ? '💪 Can Tutor'
+                            : '💪 Strong In',
+                        chips: user.strengths,
+                        color: AppTheme.success,
                       ),
-                      child: Icon(overlay! ? Icons.favorite : Icons.close,
-                          color: Colors.white, size: 40),
+                      const SizedBox(height: 12),
+                    ],
+                    if (user.weaknesses.isNotEmpty) ...[
+                      _CardSection(
+                        title: isTutor
+                            ? '📖 Still Learning'
+                            : '😅 Needs Help',
+                        chips: user.weaknesses,
+                        color: AppTheme.error,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (user.learningStyles.isNotEmpty)
+                      _CardSection(
+                          title: '🧠 Learning Style',
+                          chips: user.learningStyles),
+
+                    // Tap hint
+                    const SizedBox(height: 12),
+                    Center(
+                      child: Text('Tap to view full profile',
+                          style: TextStyle(
+                              color: AppTheme.textMuted.withOpacity(0.6),
+                              fontSize: 11,
+                              fontFamily: 'Poppins',
+                              fontStyle: FontStyle.italic)),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Swipe overlay
+              if (overlay != null)
+                Positioned.fill(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 100),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(24),
+                      color: (overlay! ? AppTheme.success : AppTheme.error)
+                          .withOpacity(0.15),
+                    ),
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color:
+                              (overlay! ? AppTheme.success : AppTheme.error)
+                                  .withOpacity(0.9),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                            overlay! ? Icons.favorite : Icons.close,
+                            color: Colors.white,
+                            size: 40),
+                      ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -468,24 +698,46 @@ class _MatchCard extends StatelessWidget {
 class _CardSection extends StatelessWidget {
   final String title;
   final List<String> chips;
-  const _CardSection({required this.title, required this.chips});
+  final Color? color;
+  const _CardSection(
+      {required this.title, required this.chips, this.color});
 
   @override
   Widget build(BuildContext context) {
+    final c = color ?? AppTheme.chipBg;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(color: AppTheme.textSecondary,
-            fontSize: 12, fontWeight: FontWeight.w500, fontFamily: 'Poppins')),
+        Text(title,
+            style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                fontFamily: 'Poppins')),
         const SizedBox(height: 6),
         Wrap(
-          spacing: 6, runSpacing: 6,
-          children: chips.map((c) => Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(color: AppTheme.chipBg, borderRadius: BorderRadius.circular(20)),
-            child: Text(c, style: const TextStyle(color: AppTheme.textPrimary,
-                fontSize: 11, fontFamily: 'Poppins')),
-          )).toList(),
+          spacing: 6,
+          runSpacing: 6,
+          children: chips
+              .map((ch) => Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                        color: color != null
+                            ? color!.withOpacity(0.15)
+                            : AppTheme.chipBg,
+                        borderRadius: BorderRadius.circular(20),
+                        border: color != null
+                            ? Border.all(
+                                color: color!.withOpacity(0.3))
+                            : null),
+                    child: Text(ch,
+                        style: TextStyle(
+                            color: color ?? AppTheme.textPrimary,
+                            fontSize: 11,
+                            fontFamily: 'Poppins')),
+                  ))
+              .toList(),
         ),
       ],
     );
@@ -497,7 +749,11 @@ class _SwipeButton extends StatelessWidget {
   final Color color;
   final VoidCallback? onTap;
   final double size;
-  const _SwipeButton({required this.icon, required this.color, this.onTap, this.size = 52});
+  const _SwipeButton(
+      {required this.icon,
+      required this.color,
+      this.onTap,
+      this.size = 52});
 
   @override
   Widget build(BuildContext context) {
@@ -528,22 +784,33 @@ class _EmptyState extends StatelessWidget {
         children: [
           Container(
             width: 80, height: 80,
-            decoration: BoxDecoration(color: AppTheme.bgCard, shape: BoxShape.circle,
+            decoration: BoxDecoration(
+                color: AppTheme.bgCard,
+                shape: BoxShape.circle,
                 border: Border.all(color: AppTheme.divider)),
-            child: const Icon(Icons.people_alt_outlined, color: AppTheme.textMuted, size: 38),
+            child: const Icon(Icons.people_alt_outlined,
+                color: AppTheme.textMuted, size: 38),
           ),
           const SizedBox(height: 20),
-          const Text("No users found", style: TextStyle(color: AppTheme.textPrimary,
-              fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Poppins')),
+          const Text('No more users',
+              style: TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Poppins')),
           const SizedBox(height: 8),
-          const Text('Try a different subject or search term.',
-              style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Poppins')),
+          const Text("You've seen everyone for now!",
+              style: TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontFamily: 'Poppins')),
           const SizedBox(height: 20),
           ElevatedButton.icon(
             onPressed: onRefresh,
             icon: const Icon(Icons.refresh),
-            label: const Text('Refresh', style: TextStyle(fontFamily: 'Poppins')),
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
+            label: const Text('Refresh',
+                style: TextStyle(fontFamily: 'Poppins')),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary),
           ),
         ],
       ),
