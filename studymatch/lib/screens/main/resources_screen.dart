@@ -15,8 +15,10 @@ class ResourcesScreen extends StatefulWidget {
 class _ResourcesScreenState extends State<ResourcesScreen> {
   String _filter = 'All';
   final _searchCtrl = TextEditingController();
-  final List<String> _filters = ['All', 'Mathematics', 'Physics', 'Chemistry',
-      'Biology', 'Computer Science', 'History', 'Statistics', 'English'];
+  final List<String> _filters = [
+    'All', 'Mathematics', 'Physics', 'Chemistry',
+    'Biology', 'Computer Science', 'History', 'Statistics', 'English',
+  ];
 
   @override
   void initState() {
@@ -53,36 +55,50 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Header row
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Resource Library',
-                            style: TextStyle(color: AppTheme.textPrimary,
-                                fontWeight: FontWeight.bold, fontSize: 22, fontFamily: 'Poppins')),
+                        const Text(
+                          'Resource Library',
+                          style: TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 22,
+                              fontFamily: 'Poppins'),
+                        ),
                         GestureDetector(
                           onTap: () => _showUploadDialog(context),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 8),
                             decoration: BoxDecoration(
-                              gradient: const LinearGradient(colors: [AppTheme.primary, AppTheme.accent]),
+                              gradient: const LinearGradient(
+                                  colors: [AppTheme.primary, AppTheme.accent]),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: const Row(children: [
                               Icon(Icons.add, color: Colors.white, size: 16),
                               SizedBox(width: 4),
-                              Text('Upload', style: TextStyle(color: Colors.white,
-                                  fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w600)),
+                              Text('Upload',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontFamily: 'Poppins',
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600)),
                             ]),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    // Search
+
+                    // Search bar
                     Row(children: [
                       Expanded(
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 14),
                           decoration: BoxDecoration(
                             color: AppTheme.inputBg,
                             borderRadius: BorderRadius.circular(12),
@@ -90,12 +106,17 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                           ),
                           child: TextField(
                             controller: _searchCtrl,
-                            style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Poppins'),
+                            style: const TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontFamily: 'Poppins'),
                             decoration: const InputDecoration(
                               hintText: 'Search resources...',
-                              hintStyle: TextStyle(color: AppTheme.textMuted, fontFamily: 'Poppins'),
+                              hintStyle: TextStyle(
+                                  color: AppTheme.textMuted,
+                                  fontFamily: 'Poppins'),
                               border: InputBorder.none,
-                              icon: Icon(Icons.search, color: AppTheme.textMuted, size: 20),
+                              icon: Icon(Icons.search,
+                                  color: AppTheme.textMuted, size: 20),
                             ),
                             onSubmitted: (_) => _search(),
                           ),
@@ -110,20 +131,23 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                             color: AppTheme.primary,
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Icon(Icons.search, color: Colors.white, size: 20),
+                          child: const Icon(Icons.search,
+                              color: Colors.white, size: 20),
                         ),
                       ),
                     ]),
                     const SizedBox(height: 16),
-                    // Filter chips
+
+                    // Filter chips (browse only — not used in upload anymore)
                     SizedBox(
                       height: 36,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         itemCount: _filters.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(width: 8),
                         itemBuilder: (_, i) {
-                          final f = _filters[i];
+                          final f   = _filters[i];
                           final sel = _filter == f;
                           return GestureDetector(
                             onTap: () {
@@ -131,55 +155,79 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                               context.read<AppState>().loadResources(
                                 subject: f == 'All' ? null : f,
                                 search: _searchCtrl.text.trim().isEmpty
-                                    ? null : _searchCtrl.text.trim(),
+                                    ? null
+                                    : _searchCtrl.text.trim(),
                               );
                             },
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 150),
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 6),
                               decoration: BoxDecoration(
-                                color: sel ? AppTheme.primary : AppTheme.inputBg,
+                                color: sel
+                                    ? AppTheme.primary
+                                    : AppTheme.inputBg,
                                 borderRadius: BorderRadius.circular(20),
                                 border: Border.all(
-                                    color: sel ? AppTheme.primary : AppTheme.divider),
+                                    color: sel
+                                        ? AppTheme.primary
+                                        : AppTheme.divider),
                               ),
-                              child: Text(f, style: TextStyle(
-                                color: sel ? Colors.white : AppTheme.textSecondary,
-                                fontFamily: 'Poppins', fontSize: 12,
-                                fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
-                              )),
+                              child: Text(f,
+                                  style: TextStyle(
+                                    color: sel
+                                        ? Colors.white
+                                        : AppTheme.textSecondary,
+                                    fontFamily: 'Poppins',
+                                    fontSize: 12,
+                                    fontWeight: sel
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                  )),
                             ),
                           );
                         },
                       ),
                     ),
                     const SizedBox(height: 16),
+
                     Text('${state.dbResources.length} Resources',
-                        style: const TextStyle(color: AppTheme.textMuted,
-                            fontSize: 13, fontFamily: 'Poppins')),
+                        style: const TextStyle(
+                            color: AppTheme.textMuted,
+                            fontSize: 13,
+                            fontFamily: 'Poppins')),
                     const SizedBox(height: 12),
                   ],
                 ),
               ),
             ),
+
+            // Loading / empty / list
             if (state.loadingResources)
               const SliverToBoxAdapter(
-                child: Center(child: Padding(
+                child: Center(
+                    child: Padding(
                   padding: EdgeInsets.all(40),
                   child: CircularProgressIndicator(color: AppTheme.primary),
                 )),
               )
             else if (state.dbResources.isEmpty)
               const SliverToBoxAdapter(
-                child: Center(child: Padding(
+                child: Center(
+                    child: Padding(
                   padding: EdgeInsets.all(40),
                   child: Column(children: [
-                    Icon(Icons.library_books_outlined, color: AppTheme.textMuted, size: 48),
+                    Icon(Icons.library_books_outlined,
+                        color: AppTheme.textMuted, size: 48),
                     SizedBox(height: 16),
-                    Text('No resources yet.\nBe the first to upload!',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: AppTheme.textMuted,
-                            fontFamily: 'Poppins', height: 1.5)),
+                    Text(
+                      'No resources yet.\nBe the first to upload!',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: AppTheme.textMuted,
+                          fontFamily: 'Poppins',
+                          height: 1.5),
+                    ),
                   ]),
                 )),
               )
@@ -196,6 +244,7 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                   ),
                 ),
               ),
+
             const SliverToBoxAdapter(child: SizedBox(height: 24)),
           ],
         ),
@@ -203,19 +252,14 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
     );
   }
 
+  // ── Upload dialog ──────────────────────────────────────────────────────────
   void _showUploadDialog(BuildContext context) {
-    final titleCtrl = TextEditingController();
-    final descCtrl  = TextEditingController();
-    String? subject;
+    final titleCtrl  = TextEditingController();
+    final authorCtrl = TextEditingController();
+    final descCtrl   = TextEditingController();
     Uint8List? fileBytes;
-    String? fileName;
+    String?   fileName;
     bool uploading = false;
-
-    // ✅ Grab the author name from the logged-in user upfront
-    final authorName = context.read<AppState>().currentUser?.fullName ?? 'Unknown';
-
-    final subjects = ['Mathematics','Physics','Chemistry','Biology',
-        'Computer Science','English','History','Statistics'];
 
     showModalBottomSheet(
       context: context,
@@ -226,153 +270,247 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
       builder: (_) => StatefulBuilder(
         builder: (ctx, setS) => Padding(
           padding: EdgeInsets.only(
-            left: 24, right: 24, top: 24,
+            left: 24,
+            right: 24,
+            top: 24,
             bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Upload Resource',
-                  style: TextStyle(color: AppTheme.textPrimary,
-                      fontWeight: FontWeight.bold, fontSize: 18, fontFamily: 'Poppins')),
-              const SizedBox(height: 20),
-              // Title
-              TextField(
-                controller: titleCtrl,
-                style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Poppins'),
-                decoration: InputDecoration(
-                  labelText: 'Title *',
-                  labelStyle: const TextStyle(color: AppTheme.textMuted),
-                  filled: true, fillColor: AppTheme.inputBg,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppTheme.divider)),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppTheme.divider)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              // Subject dropdown
-              Container(
-                decoration: BoxDecoration(
-                  color: AppTheme.inputBg, borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppTheme.divider),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: subject,
-                    hint: const Padding(padding: EdgeInsets.symmetric(horizontal: 12),
-                        child: Text('Select Subject *',
-                            style: TextStyle(color: AppTheme.textMuted, fontFamily: 'Poppins'))),
-                    isExpanded: true,
-                    dropdownColor: AppTheme.bgCard,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Poppins'),
-                    items: subjects.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                    onChanged: (v) => setS(() => subject = v),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Sheet handle
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                        color: AppTheme.divider,
+                        borderRadius: BorderRadius.circular(2)),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              // Description
-              TextField(
-                controller: descCtrl,
-                maxLines: 2,
-                style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Poppins'),
-                decoration: InputDecoration(
-                  labelText: 'Description',
-                  labelStyle: const TextStyle(color: AppTheme.textMuted),
-                  filled: true, fillColor: AppTheme.inputBg,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppTheme.divider)),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppTheme.divider)),
+
+                const Text('Upload Resource',
+                    style: TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        fontFamily: 'Poppins')),
+                const SizedBox(height: 6),
+                const Text(
+                  'Please credit the original author to avoid plagiarism.',
+                  style: TextStyle(
+                      color: AppTheme.textMuted,
+                      fontFamily: 'Poppins',
+                      fontSize: 12,
+                      height: 1.4),
                 ),
-              ),
-              const SizedBox(height: 12),
-              // File picker
-              GestureDetector(
-                onTap: () async {
-                  final result = await FilePicker.platform.pickFiles(
-                    type: FileType.custom,
-                    allowedExtensions: ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt'],
-                    withData: true,
-                  );
-                  if (result != null && result.files.single.bytes != null) {
-                    setS(() {
-                      fileBytes = result.files.single.bytes;
-                      fileName  = result.files.single.name;
-                    });
-                  }
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: fileBytes != null
-                        ? AppTheme.success.withOpacity(0.1) : AppTheme.inputBg,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                        color: fileBytes != null ? AppTheme.success : AppTheme.divider),
+                const SizedBox(height: 20),
+
+                // ── Title ──────────────────────────────────────────────
+                TextField(
+                  controller: titleCtrl,
+                  style: const TextStyle(
+                      color: AppTheme.textPrimary, fontFamily: 'Poppins'),
+                  decoration: InputDecoration(
+                    labelText: 'Title *',
+                    labelStyle:
+                        const TextStyle(color: AppTheme.textMuted),
+                    filled: true,
+                    fillColor: AppTheme.inputBg,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: AppTheme.divider)),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: AppTheme.divider)),
+                    prefixIcon: const Icon(Icons.title,
+                        color: AppTheme.textMuted, size: 20),
                   ),
-                  child: Row(children: [
-                    Icon(
-                      fileBytes != null ? Icons.check_circle : Icons.upload_file,
-                      color: fileBytes != null ? AppTheme.success : AppTheme.textMuted,
-                      size: 20,
+                ),
+                const SizedBox(height: 12),
+
+                // ── Author / Source ────────────────────────────────────
+                TextField(
+                  controller: authorCtrl,
+                  style: const TextStyle(
+                      color: AppTheme.textPrimary, fontFamily: 'Poppins'),
+                  decoration: InputDecoration(
+                    labelText: 'Author / Source *',
+                    hintText:
+                        'e.g. Juan dela Cruz, OpenStax, Khan Academy',
+                    hintStyle: const TextStyle(
+                        color: AppTheme.textMuted,
+                        fontFamily: 'Poppins',
+                        fontSize: 12),
+                    labelStyle:
+                        const TextStyle(color: AppTheme.textMuted),
+                    filled: true,
+                    fillColor: AppTheme.inputBg,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: AppTheme.divider)),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: AppTheme.divider)),
+                    prefixIcon: const Icon(Icons.person_outline,
+                        color: AppTheme.textMuted, size: 20),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // ── Description ────────────────────────────────────────
+                TextField(
+                  controller: descCtrl,
+                  maxLines: 2,
+                  style: const TextStyle(
+                      color: AppTheme.textPrimary, fontFamily: 'Poppins'),
+                  decoration: InputDecoration(
+                    labelText: 'Description (optional)',
+                    labelStyle:
+                        const TextStyle(color: AppTheme.textMuted),
+                    filled: true,
+                    fillColor: AppTheme.inputBg,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: AppTheme.divider)),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: AppTheme.divider)),
+                    prefixIcon: const Icon(Icons.notes,
+                        color: AppTheme.textMuted, size: 20),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // ── File picker ────────────────────────────────────────
+                GestureDetector(
+                  onTap: () async {
+                    final result = await FilePicker.platform.pickFiles(
+                      type: FileType.custom,
+                      allowedExtensions: [
+                        'pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt'
+                      ],
+                      withData: true,
+                    );
+                    if (result != null &&
+                        result.files.single.bytes != null) {
+                      setS(() {
+                        fileBytes = result.files.single.bytes;
+                        fileName  = result.files.single.name;
+                      });
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: fileBytes != null
+                          ? AppTheme.success.withOpacity(0.1)
+                          : AppTheme.inputBg,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: fileBytes != null
+                              ? AppTheme.success
+                              : AppTheme.divider),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(child: Text(
-                      fileName ?? 'Tap to select file (PDF, DOC, DOCX, PPT, TXT)',
-                      style: TextStyle(
-                        color: fileBytes != null ? AppTheme.success : AppTheme.textMuted,
-                        fontFamily: 'Poppins', fontSize: 13,
+                    child: Row(children: [
+                      Icon(
+                        fileBytes != null
+                            ? Icons.check_circle
+                            : Icons.upload_file,
+                        color: fileBytes != null
+                            ? AppTheme.success
+                            : AppTheme.textMuted,
+                        size: 20,
                       ),
-                      overflow: TextOverflow.ellipsis,
-                    )),
-                  ]),
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: (uploading || fileBytes == null ||
-                      titleCtrl.text.trim().isEmpty || subject == null)
-                      ? null
-                      : () async {
-                          setS(() => uploading = true);
-                          // ✅ authorName is now passed correctly
-                          final result = await context.read<AppState>().uploadResource(
-                            title:       titleCtrl.text.trim(),
-                            subject:     subject!,
-                            description: descCtrl.text.trim(),
-                            authorName:  authorName,
-                            fileBytes:   fileBytes!,
-                            fileName:    fileName!,
-                          );
-                          if (ctx.mounted) Navigator.pop(ctx);
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text(result['success'] == true
-                                  ? 'Resource uploaded!' : result['message'] ?? 'Upload failed'),
-                              backgroundColor: result['success'] == true
-                                  ? AppTheme.success : AppTheme.error,
-                            ));
-                          }
-                        },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          fileName ??
+                              'Tap to select file (PDF, DOC, DOCX, PPT, TXT)',
+                          style: TextStyle(
+                            color: fileBytes != null
+                                ? AppTheme.success
+                                : AppTheme.textMuted,
+                            fontFamily: 'Poppins',
+                            fontSize: 13,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ]),
                   ),
-                  child: uploading
-                      ? const SizedBox(width: 20, height: 20,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Text('Upload Resource',
-                          style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w600)),
                 ),
-              ),
-            ],
+                const SizedBox(height: 20),
+
+                // ── Upload button ──────────────────────────────────────
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: (uploading ||
+                            fileBytes == null ||
+                            titleCtrl.text.trim().isEmpty ||
+                            authorCtrl.text.trim().isEmpty)
+                        ? null
+                        : () async {
+                            setS(() => uploading = true);
+                            final result = await context
+                                .read<AppState>()
+                                .uploadResource(
+                              title:       titleCtrl.text.trim(),
+                              subject:     '',
+                              description: descCtrl.text.trim(),
+                              authorName:  authorCtrl.text.trim(),
+                              fileBytes:   fileBytes!,
+                              fileName:    fileName!,
+                            );
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            if (mounted) {
+                              ScaffoldMessenger.of(context)
+                                  .showSnackBar(SnackBar(
+                                content: Text(result['success'] == true
+                                    ? '✅ Resource uploaded!'
+                                    : result['message'] ??
+                                        'Upload failed'),
+                                backgroundColor:
+                                    result['success'] == true
+                                        ? AppTheme.success
+                                        : AppTheme.error,
+                              ));
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primary,
+                      disabledBackgroundColor:
+                          AppTheme.primary.withOpacity(0.3),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: uploading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                                color: Colors.white, strokeWidth: 2))
+                        : const Text('Upload Resource',
+                            style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontWeight: FontWeight.w600)),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         ),
       ),
@@ -380,6 +518,7 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
   }
 }
 
+// ── Resource Card ──────────────────────────────────────────────────────────────
 class _ResourceCard extends StatelessWidget {
   final DBResource resource;
   const _ResourceCard({required this.resource});
@@ -396,8 +535,10 @@ class _ResourceCard extends StatelessWidget {
       ),
       child: Row(
         children: [
+          // File type icon block
           Container(
-            width: 60, height: 74,
+            width: 60,
+            height: 74,
             decoration: BoxDecoration(
               color: color.withOpacity(0.15),
               borderRadius: BorderRadius.circular(10),
@@ -407,54 +548,90 @@ class _ResourceCard extends StatelessWidget {
               children: [
                 Icon(_typeIcon(resource.fileType), color: color, size: 28),
                 const SizedBox(height: 4),
-                Text(resource.fileType.toUpperCase(),
-                    style: TextStyle(color: color, fontSize: 9,
-                        fontWeight: FontWeight.bold, fontFamily: 'Poppins')),
+                Text(
+                  resource.fileType.toUpperCase(),
+                  style: TextStyle(
+                      color: color,
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Poppins'),
+                ),
               ],
             ),
           ),
           const SizedBox(width: 14),
+
+          // Info
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(resource.title,
-                    style: const TextStyle(color: AppTheme.textPrimary,
-                        fontWeight: FontWeight.w600, fontSize: 14, fontFamily: 'Poppins'),
-                    maxLines: 2, overflow: TextOverflow.ellipsis),
+                Text(
+                  resource.title,
+                  style: const TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      fontFamily: 'Poppins'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 if (resource.description.isNotEmpty) ...[
                   const SizedBox(height: 4),
-                  Text(resource.description,
-                      style: const TextStyle(color: AppTheme.textMuted,
-                          fontSize: 12, fontFamily: 'Poppins', height: 1.3),
-                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                  Text(
+                    resource.description,
+                    style: const TextStyle(
+                        color: AppTheme.textMuted,
+                        fontSize: 12,
+                        fontFamily: 'Poppins',
+                        height: 1.3),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ],
                 const SizedBox(height: 8),
                 Row(children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(10),
+                  // Subject chip — hidden if empty
+                  if (resource.subject.isNotEmpty) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        resource.subject,
+                        style: TextStyle(
+                            color: color,
+                            fontSize: 11,
+                            fontFamily: 'Poppins',
+                            fontWeight: FontWeight.w500),
+                      ),
                     ),
-                    child: Text(resource.subject,
-                        style: TextStyle(color: color, fontSize: 11,
-                            fontFamily: 'Poppins', fontWeight: FontWeight.w500)),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: Text(
+                      'by ${resource.uploaderName}',
+                      style: const TextStyle(
+                          color: AppTheme.textMuted,
+                          fontSize: 11,
+                          fontFamily: 'Poppins'),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  Text('by ${resource.uploaderName}',
-                      style: const TextStyle(color: AppTheme.textMuted,
-                          fontSize: 11, fontFamily: 'Poppins')),
                 ]),
               ],
             ),
           ),
+
           const SizedBox(width: 8),
           if (resource.fileUrl != null)
             IconButton(
-              icon: const Icon(Icons.download_outlined, color: AppTheme.textMuted, size: 22),
+              icon: const Icon(Icons.download_outlined,
+                  color: AppTheme.textMuted, size: 22),
               onPressed: () {
-                // Open file URL
                 // launchUrl(Uri.parse(resource.fileUrl!));
               },
             ),
@@ -465,17 +642,31 @@ class _ResourceCard extends StatelessWidget {
 
   IconData _typeIcon(String type) {
     switch (type) {
-      case 'pdf': return Icons.picture_as_pdf_outlined;
-      case 'doc': case 'docx': return Icons.description_outlined;
-      case 'ppt': case 'pptx': return Icons.slideshow_outlined;
-      case 'txt': return Icons.text_snippet_outlined;
-      default: return Icons.insert_drive_file_outlined;
+      case 'pdf':
+        return Icons.picture_as_pdf_outlined;
+      case 'doc':
+      case 'docx':
+        return Icons.description_outlined;
+      case 'ppt':
+      case 'pptx':
+        return Icons.slideshow_outlined;
+      case 'txt':
+        return Icons.text_snippet_outlined;
+      default:
+        return Icons.insert_drive_file_outlined;
     }
   }
 
   Color _subjectColor(String subject) {
-    const colors = [AppTheme.primary, AppTheme.accent, AppTheme.success,
-        AppTheme.warning, Color(0xFF3B82F6), Color(0xFFEC4899)];
+    if (subject.isEmpty) return AppTheme.primary;
+    const colors = [
+      AppTheme.primary,
+      AppTheme.accent,
+      AppTheme.success,
+      AppTheme.warning,
+      Color(0xFF3B82F6),
+      Color(0xFFEC4899),
+    ];
     return colors[subject.hashCode % colors.length];
   }
 }

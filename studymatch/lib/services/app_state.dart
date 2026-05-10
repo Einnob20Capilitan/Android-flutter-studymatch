@@ -14,9 +14,9 @@ class AppState extends ChangeNotifier {
   static const int _totalOnboardingSteps = 5;
   int get totalOnboardingSteps => _totalOnboardingSteps;
 
-  List<RealUser>   _matchUsers   = []; // deck — users not yet seen
-  List<RealUser>   _matchedUsers = []; // users I liked (from DB)
-  List<String>     _passedIds    = []; // users I passed (local only)
+  List<RealUser>   _matchUsers   = [];
+  List<RealUser>   _matchedUsers = [];
+  List<String>     _passedIds    = [];
   List<DBResource> _dbResources  = [];
   bool _loadingUsers     = false;
   bool _loadingResources = false;
@@ -87,7 +87,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // ── Passed IDs (local only — just to prevent showing again this session) ──
+  // ── Passed IDs ────────────────────────────────────────────────────────────
   Future<void> _loadPassedIds() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('sm_passed_${_currentUser?.id}');
@@ -115,7 +115,6 @@ class AppState extends ChangeNotifier {
         myStrengths:  _currentUser?.strengths,
         myWeaknesses: _currentUser?.weaknesses,
       );
-      // Filter out already matched (from DB) and passed (local)
       final excludeIds = {
         ..._matchedUsers.map((u) => u.id),
         ..._passedIds,
@@ -164,12 +163,19 @@ class AppState extends ChangeNotifier {
   }
 
   // ── Rate user ─────────────────────────────────────────────────────────────
+  /// Submit or update a star rating + optional written review for a tutor.
   Future<Map<String, dynamic>> rateUser({
-    required String ratedId, required int score,
+    required String ratedId,
+    required int score,
+    String review = '', // ✅ optional review text
   }) async {
     try {
       final result = await ApiService.rateUser(
-          raterId: _currentUser!.id, ratedId: ratedId, score: score);
+        raterId: _currentUser!.id,
+        ratedId: ratedId,
+        score:   score,
+        review:  review,
+      );
       if (result['success'] == true) {
         final data = result['data'] as Map<String, dynamic>?;
         _updateRatingInList(_matchUsers, ratedId, data);
@@ -318,38 +324,82 @@ class AppState extends ChangeNotifier {
     } catch (e) { return 'Network error: $e'; }
   }
 
-  // ── Match actions ─────────────────────────────────────────────────────────
-
-  /// Like → save to DB matches table, remove from deck
-  Future<void> likeUser(String userId) async {
-    final idx = _matchUsers.indexWhere((u) => u.id == userId);
-    if (idx == -1) return;
-
-    final liked = _matchUsers[idx];
-    _matchUsers.removeAt(idx);
-
-    // Save to DB
-    if (_currentUser != null) {
-      try {
-        await ApiService.saveMatch(
-          userId: _currentUser!.id,
-          matchedId: userId,
-        );
-        // Add to local matched list if not already there
-        if (!_matchedUsers.any((u) => u.id == userId)) {
-          _matchedUsers.insert(0, liked);
-        }
-      } catch (_) {
-        // Even if API fails, keep local state
-        if (!_matchedUsers.any((u) => u.id == userId)) {
-          _matchedUsers.insert(0, liked);
-        }
-      }
-    }
-    notifyListeners();
+  // ── Compatibility check ───────────────────────────────────────────────────
+  bool get currentUserHasAttributes {
+    final u = _currentUser;
+    if (u == null) return false;
+    return u.strengths.isNotEmpty ||
+        u.weaknesses.isNotEmpty ||
+        u.subjects.isNotEmpty;
   }
 
-  /// Pass → add to passed list (local), never show again this session
+  bool _candidateHasAttributes(RealUser candidate) =>
+      candidate.strengths.isNotEmpty ||
+      candidate.weaknesses.isNotEmpty ||
+      candidate.subjects.isNotEmpty;
+
+  bool isCompatible(RealUser candidate) {
+    if (!currentUserHasAttributes) return false;
+    if (!_candidateHasAttributes(candidate)) return false;
+    return true;
+  }
+
+  // ── Match actions ─────────────────────────────────────────────────────────
+
+  Future<bool> likeUser(String userId) async {
+    final idx = _matchUsers.indexWhere((u) => u.id == userId);
+    if (idx == -1) return false;
+
+    final liked = _matchUsers[idx];
+
+    if (!isCompatible(liked)) {
+      _matchUsers.removeAt(idx);
+      if (!_passedIds.contains(userId)) {
+        _passedIds.add(userId);
+        _savePassedIds();
+      }
+      notifyListeners();
+      return false;
+    }
+
+    _matchUsers.removeAt(idx);
+    notifyListeners();
+
+    if (_currentUser != null) {
+      try {
+        final result = await ApiService.saveMatch(
+          userId:    _currentUser!.id,
+          matchedId: userId,
+        );
+
+        if (result['success'] == true) {
+          if (!_matchedUsers.any((u) => u.id == userId)) {
+            _matchedUsers.insert(0, liked);
+          }
+          notifyListeners();
+          return true;
+        } else {
+          if (!_passedIds.contains(userId)) {
+            _passedIds.add(userId);
+            _savePassedIds();
+          }
+          notifyListeners();
+          return false;
+        }
+      } catch (_) {
+        if (!_passedIds.contains(userId)) {
+          _passedIds.add(userId);
+          _savePassedIds();
+        }
+        notifyListeners();
+        return false;
+      }
+    }
+
+    notifyListeners();
+    return false;
+  }
+
   void passUser(String userId) {
     _matchUsers.removeWhere((u) => u.id == userId);
     if (!_passedIds.contains(userId)) {
@@ -359,13 +409,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Remove a match (unmatch)
   Future<void> unmatchUser(String userId) async {
     _matchedUsers.removeWhere((u) => u.id == userId);
     if (_currentUser != null) {
       try {
         await ApiService.removeMatch(
-          userId: _currentUser!.id,
+          userId:    _currentUser!.id,
           matchedId: userId,
         );
       } catch (_) {}

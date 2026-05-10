@@ -49,9 +49,9 @@ try {
         case 'get_user':         handleGetUser($pdo);                break;
         case 'get_profile':      handleGetProfile($pdo);             break;
         case 'rate_user':        handleRateUser($pdo, $body);        break;
+        case 'get_reviews':      handleGetReviews($pdo);             break; // ✅ NEW
         case 'get_resources':    handleGetResources($pdo);           break;
         case 'upload_resource':  handleUploadResource($pdo);         break;
-        // ✅ NEW match endpoints
         case 'save_match':       handleSaveMatch($pdo, $body);       break;
         case 'get_matches':      handleGetMatches($pdo);             break;
         case 'remove_match':     handleRemoveMatch($pdo, $body);     break;
@@ -83,6 +83,27 @@ function safeJsonObject($val): array {
     return is_array($decoded) ? $decoded : [];
 }
 
+// ── Attribute check ───────────────────────────────────────────────────────────
+function hasAttributes(array $strengths, array $weaknesses, array $subjects): bool {
+    return !empty($strengths) || !empty($weaknesses) || !empty($subjects);
+}
+
+// ── Compatibility score ───────────────────────────────────────────────────────
+function computeCompatibility(
+    string $myRole,
+    array  $myStrengths,
+    array  $myWeaknesses,
+    string $theirRole,
+    array  $theirStrengths,
+    array  $theirWeaknesses
+): int {
+    if ($theirRole === 'tutor') {
+        return count(array_intersect($myWeaknesses, $theirStrengths));
+    } else {
+        return count(array_intersect($myStrengths, $theirWeaknesses));
+    }
+}
+
 // ── Auth Handlers ─────────────────────────────────────────────────────────────
 
 function handleRegister(PDO $pdo, array $b): void {
@@ -103,7 +124,6 @@ function handleRegister(PDO $pdo, array $b): void {
     $pdo->prepare('INSERT INTO users (id, full_name, email, password) VALUES (?,?,?,?)')
         ->execute([$id, $name, $email, password_hash($password, PASSWORD_BCRYPT)]);
 
-    // Auto-create empty profile row
     $pdo->prepare('INSERT INTO profiles (user_id, role, onboarding_complete) VALUES (?,?,?)')
         ->execute([$id, 'student', 0]);
 
@@ -318,7 +338,90 @@ function handleUpdateProfile(PDO $pdo, array $b): void {
             ->execute([$b['fullName'], $id]);
     }
 
+    cleanStaleMatches($pdo, $id);
     respond(true, 'Profile updated');
+}
+
+// ── Clean stale matches ───────────────────────────────────────────────────────
+function cleanStaleMatches(PDO $pdo, string $userId): void {
+    $stmt = $pdo->prepare('SELECT role, strengths, weaknesses FROM profiles WHERE user_id = ?');
+    $stmt->execute([$userId]);
+    $myProfile = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$myProfile) return;
+
+    $myRole  = $myProfile['role'] ?? 'student';
+    $myStr   = safeJsonArray($myProfile['strengths']  ?? null);
+    $myWeak  = safeJsonArray($myProfile['weaknesses'] ?? null);
+
+    $stmt = $pdo->prepare('
+        SELECT m.id as match_id, p.role as their_role,
+               p.strengths as their_str, p.weaknesses as their_weak,
+               p.subjects as their_subj
+        FROM matches m
+        JOIN profiles p ON p.user_id = m.matched_id
+        WHERE m.user_id = ?
+    ');
+    $stmt->execute([$userId]);
+    $myMatches = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $staleMatchIds = [];
+    foreach ($myMatches as $row) {
+        $theirStr  = safeJsonArray($row['their_str']  ?? null);
+        $theirWeak = safeJsonArray($row['their_weak'] ?? null);
+        $theirSubj = safeJsonArray($row['their_subj'] ?? null);
+        $theirRole = $row['their_role'] ?? 'student';
+
+        if (!hasAttributes($myStr, $myWeak, []) || !hasAttributes($theirStr, $theirWeak, $theirSubj)) {
+            $staleMatchIds[] = $row['match_id'];
+            continue;
+        }
+
+        $score = computeCompatibility($myRole, $myStr, $myWeak, $theirRole, $theirStr, $theirWeak);
+        if ($score === 0) {
+            $staleMatchIds[] = $row['match_id'];
+        }
+    }
+
+    if (!empty($staleMatchIds)) {
+        $placeholders = implode(',', array_fill(0, count($staleMatchIds), '?'));
+        $pdo->prepare("DELETE FROM matches WHERE id IN ($placeholders)")
+            ->execute($staleMatchIds);
+    }
+
+    $stmt = $pdo->prepare('
+        SELECT m.id as match_id, p.role as their_role,
+               p.strengths as their_str, p.weaknesses as their_weak,
+               p.subjects as their_subj
+        FROM matches m
+        JOIN profiles p ON p.user_id = m.user_id
+        WHERE m.matched_id = ?
+    ');
+    $stmt->execute([$userId]);
+    $inboundMatches = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $staleInboundIds = [];
+    foreach ($inboundMatches as $row) {
+        $theirStr  = safeJsonArray($row['their_str']  ?? null);
+        $theirWeak = safeJsonArray($row['their_weak'] ?? null);
+        $theirSubj = safeJsonArray($row['their_subj'] ?? null);
+        $theirRole = $row['their_role'] ?? 'student';
+
+        if (!hasAttributes($theirStr, $theirWeak, []) || !hasAttributes($myStr, $myWeak, $theirSubj)) {
+            $staleInboundIds[] = $row['match_id'];
+            continue;
+        }
+
+        $score = computeCompatibility($theirRole, $theirStr, $theirWeak, $myRole, $myStr, $myWeak);
+        if ($score === 0) {
+            $staleInboundIds[] = $row['match_id'];
+        }
+    }
+
+    if (!empty($staleInboundIds)) {
+        $placeholders = implode(',', array_fill(0, count($staleInboundIds), '?'));
+        $pdo->prepare("DELETE FROM matches WHERE id IN ($placeholders)")
+            ->execute($staleInboundIds);
+    }
 }
 
 // ── Users / Matching ──────────────────────────────────────────────────────────
@@ -345,9 +448,6 @@ function handleGetUsers(PDO $pdo): void {
     if (!empty($excludeId)) {
         $sql .= ' AND u.id != ?';
         $params[] = $excludeId;
-
-        // ✅ Also exclude users already matched or passed
-        // Exclude already matched
         $sql .= ' AND u.id NOT IN (SELECT matched_id FROM matches WHERE user_id = ?)';
         $params[] = $excludeId;
     }
@@ -384,13 +484,13 @@ function handleGetUsers(PDO $pdo): void {
     foreach ($rows as $r) {
         $theirStr  = safeJsonArray($r['strengths']);
         $theirWeak = safeJsonArray($r['weaknesses']);
+        $theirSubj = safeJsonArray($r['subjects']);
         $theirRole = $r['role'] ?? 'student';
 
-        if ($theirRole === 'tutor') {
-            $score = count(array_intersect($myWeakArr, $theirStr));
-        } else {
-            $score = count(array_intersect($myStrArr, $theirWeak));
-        }
+        $score = computeCompatibility(
+            $myRole, $myStrArr, $myWeakArr,
+            $theirRole, $theirStr, $theirWeak
+        );
 
         $users[] = [
             'id'                 => $r['id'],
@@ -399,7 +499,7 @@ function handleGetUsers(PDO $pdo): void {
             'school'             => $r['school'],
             'department'         => $r['department'],
             'role'               => $theirRole,
-            'subjects'           => safeJsonArray($r['subjects']),
+            'subjects'           => $theirSubj,
             'learningStyles'     => safeJsonArray($r['learning_styles']),
             'studyStyles'        => safeJsonArray($r['study_styles']),
             'profilePhotoUrl'    => $r['profile_photo_url'],
@@ -446,21 +546,45 @@ function handleGetProfile(PDO $pdo): void {
     handleGetUser($pdo);
 }
 
+// ── Rate user (with optional review text) ─────────────────────────────────────
+/**
+ * SQL migration required — run this once on your database:
+ *
+ *   ALTER TABLE ratings
+ *     ADD COLUMN review TEXT NULL AFTER score,
+ *     ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ *     ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+ *
+ * The ON DUPLICATE KEY UPDATE will update score+review if the same rater
+ * rates the same person again (one rating per rater-ratee pair).
+ */
 function handleRateUser(PDO $pdo, array $b): void {
     $raterId = trim($b['rater_id'] ?? '');
     $ratedId = trim($b['rated_id'] ?? '');
     $score   = (int)($b['score']   ?? 0);
+    $review  = trim($b['review']   ?? ''); // ✅ optional review text
 
     if (empty($raterId) || empty($ratedId) || $score < 1 || $score > 5)
         respond(false, 'Invalid input', null, 400);
     if ($raterId === $ratedId)
         respond(false, 'Cannot rate yourself', null, 400);
 
-    $pdo->prepare('
-        INSERT INTO ratings (rater_id, rated_id, score) VALUES (?,?,?)
-        ON DUPLICATE KEY UPDATE score = VALUES(score)
-    ')->execute([$raterId, $ratedId, $score]);
+    // Only tutors can be reviewed — verify the rated user is a tutor
+    $stmt = $pdo->prepare('SELECT role FROM profiles WHERE user_id = ?');
+    $stmt->execute([$ratedId]);
+    $profile = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$profile || $profile['role'] !== 'tutor') {
+        respond(false, 'Only tutors can be rated', null, 422);
+    }
 
+    // Upsert: one rating+review per rater per tutor
+    $pdo->prepare('
+        INSERT INTO ratings (rater_id, rated_id, score, review)
+        VALUES (?,?,?,?)
+        ON DUPLICATE KEY UPDATE score = VALUES(score), review = VALUES(review)
+    ')->execute([$raterId, $ratedId, $score, $review ?: null]);
+
+    // Recalculate aggregate rating
     $stmt = $pdo->prepare('SELECT AVG(score) as avg, COUNT(*) as cnt FROM ratings WHERE rated_id = ?');
     $stmt->execute([$ratedId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -474,7 +598,59 @@ function handleRateUser(PDO $pdo, array $b): void {
     ]);
 }
 
-// ── ✅ Match Handlers ─────────────────────────────────────────────────────────
+// ── Get reviews for a tutor ───────────────────────────────────────────────────
+/**
+ * GET ?action=get_reviews&api_key=...&tutor_id=<id>&rater_id=<optional>
+ *
+ * Returns all reviews for the given tutor, newest first.
+ * Optionally pass rater_id to include a flag showing the caller's own review.
+ */
+function handleGetReviews(PDO $pdo): void {
+    $tutorId  = trim($_GET['tutor_id']  ?? '');
+    $raterId  = trim($_GET['rater_id']  ?? ''); // optional — to flag own review
+    if (empty($tutorId)) respond(false, 'tutor_id required', null, 400);
+
+    $stmt = $pdo->prepare('
+        SELECT r.rater_id, r.score, r.review, r.created_at,
+               u.full_name as rater_name
+        FROM ratings r
+        JOIN users u ON u.id = r.rater_id
+        WHERE r.rated_id = ?
+        ORDER BY r.created_at DESC
+    ');
+    $stmt->execute([$tutorId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Fetch the caller's own existing rating (if any)
+    $myRating = null;
+    $myReview = null;
+    if (!empty($raterId)) {
+        $own = $pdo->prepare('SELECT score, review FROM ratings WHERE rater_id = ? AND rated_id = ?');
+        $own->execute([$raterId, $tutorId]);
+        $ownRow = $own->fetch(PDO::FETCH_ASSOC);
+        if ($ownRow) {
+            $myRating = (int)$ownRow['score'];
+            $myReview = $ownRow['review'];
+        }
+    }
+
+    $reviews = array_map(fn($r) => [
+        'raterId'    => $r['rater_id'],
+        'raterName'  => $r['rater_name'],
+        'score'      => (int)$r['score'],
+        'review'     => $r['review'] ?? '',
+        'createdAt'  => $r['created_at'],
+        'isOwn'      => $r['rater_id'] === $raterId,
+    ], $rows);
+
+    respond(true, 'Reviews fetched', [
+        'reviews'  => $reviews,
+        'myRating' => $myRating,
+        'myReview' => $myReview,
+    ]);
+}
+
+// ── Match Handlers ────────────────────────────────────────────────────────────
 
 function handleSaveMatch(PDO $pdo, array $b): void {
     $userId    = trim($b['user_id']    ?? '');
@@ -485,22 +661,69 @@ function handleSaveMatch(PDO $pdo, array $b): void {
     if ($userId === $matchedId)
         respond(false, 'Cannot match with yourself', null, 400);
 
-    $pdo->prepare('
-        INSERT IGNORE INTO matches (user_id, matched_id) VALUES (?,?)
-    ')->execute([$userId, $matchedId]);
+    $stmtMe = $pdo->prepare('SELECT role, strengths, weaknesses, subjects FROM profiles WHERE user_id = ?');
+    $stmtMe->execute([$userId]);
+    $me = $stmtMe->fetch(PDO::FETCH_ASSOC);
 
-    respond(true, 'Match saved');
+    if (!$me) respond(false, 'Your profile not found', null, 404);
+
+    $myRole  = $me['role'] ?? 'student';
+    $myStr   = safeJsonArray($me['strengths']  ?? null);
+    $myWeak  = safeJsonArray($me['weaknesses'] ?? null);
+    $mySubj  = safeJsonArray($me['subjects']   ?? null);
+
+    $stmtThem = $pdo->prepare('SELECT role, strengths, weaknesses, subjects FROM profiles WHERE user_id = ?');
+    $stmtThem->execute([$matchedId]);
+    $them = $stmtThem->fetch(PDO::FETCH_ASSOC);
+
+    if (!$them) respond(false, 'Matched user profile not found', null, 404);
+
+    $theirRole = $them['role'] ?? 'student';
+    $theirStr  = safeJsonArray($them['strengths']  ?? null);
+    $theirWeak = safeJsonArray($them['weaknesses'] ?? null);
+    $theirSubj = safeJsonArray($them['subjects']   ?? null);
+
+    if (!hasAttributes($myStr, $myWeak, $mySubj)) {
+        respond(false, 'Cannot match: your profile has no attributes set. Please complete your profile first.', null, 422);
+    }
+
+    if (!hasAttributes($theirStr, $theirWeak, $theirSubj)) {
+        respond(false, 'Cannot match: this user has no profile attributes set.', null, 422);
+    }
+
+    if ($myRole === $theirRole) {
+        respond(false, 'Cannot match: both users have the same role (' . $myRole . '). Students match with tutors only.', null, 422);
+    }
+
+    $score = computeCompatibility($myRole, $myStr, $myWeak, $theirRole, $theirStr, $theirWeak);
+    if ($score === 0) {
+        respond(false, 'Cannot match: no overlapping subjects between your profile and this user. Update your weaknesses/strengths to find compatible partners.', null, 422);
+    }
+
+    $pdo->prepare('INSERT IGNORE INTO matches (user_id, matched_id) VALUES (?,?)')
+        ->execute([$userId, $matchedId]);
+
+    respond(true, 'Match saved', ['compatibilityScore' => $score]);
 }
 
 function handleGetMatches(PDO $pdo): void {
     $userId = trim($_GET['user_id'] ?? '');
     if (empty($userId)) respond(false, 'user_id required', null, 400);
 
+    $stmtMe = $pdo->prepare('SELECT role, strengths, weaknesses FROM profiles WHERE user_id = ?');
+    $stmtMe->execute([$userId]);
+    $me = $stmtMe->fetch(PDO::FETCH_ASSOC);
+
+    $myRole = $me['role'] ?? 'student';
+    $myStr  = safeJsonArray($me['strengths']  ?? null);
+    $myWeak = safeJsonArray($me['weaknesses'] ?? null);
+
     $stmt = $pdo->prepare('
         SELECT u.id, u.full_name, u.email,
                p.school, p.department, p.subjects, p.learning_styles,
                p.study_styles, p.profile_photo_url, p.rating, p.rating_count,
                p.strengths, p.weaknesses, p.bio, p.role,
+               m.id as match_row_id,
                m.created_at as matched_at
         FROM matches m
         JOIN users u ON u.id = m.matched_id
@@ -511,25 +734,52 @@ function handleGetMatches(PDO $pdo): void {
     $stmt->execute([$userId]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $matches = array_map(fn($r) => [
-        'id'              => $r['id'],
-        'fullName'        => $r['full_name'],
-        'email'           => $r['email'],
-        'school'          => $r['school'],
-        'department'      => $r['department'],
-        'role'            => $r['role'] ?? 'student',
-        'subjects'        => safeJsonArray($r['subjects']),
-        'learningStyles'  => safeJsonArray($r['learning_styles']),
-        'studyStyles'     => safeJsonArray($r['study_styles']),
-        'profilePhotoUrl' => $r['profile_photo_url'],
-        'rating'          => (float)($r['rating'] ?? 0),
-        'ratingCount'     => (int)($r['rating_count'] ?? 0),
-        'strengths'       => safeJsonArray($r['strengths']),
-        'weaknesses'      => safeJsonArray($r['weaknesses']),
-        'bio'             => $r['bio'],
-        'matchedAt'       => $r['matched_at'],
-        'compatibilityScore' => 0,
-    ], $rows);
+    $matches  = [];
+    $staleIds = [];
+
+    foreach ($rows as $r) {
+        $theirStr  = safeJsonArray($r['strengths']);
+        $theirWeak = safeJsonArray($r['weaknesses']);
+        $theirSubj = safeJsonArray($r['subjects']);
+        $theirRole = $r['role'] ?? 'student';
+
+        if (!hasAttributes($myStr, $myWeak, []) || !hasAttributes($theirStr, $theirWeak, $theirSubj)) {
+            $staleIds[] = $r['match_row_id'];
+            continue;
+        }
+
+        $score = computeCompatibility($myRole, $myStr, $myWeak, $theirRole, $theirStr, $theirWeak);
+        if ($score === 0) {
+            $staleIds[] = $r['match_row_id'];
+            continue;
+        }
+
+        $matches[] = [
+            'id'                 => $r['id'],
+            'fullName'           => $r['full_name'],
+            'email'              => $r['email'],
+            'school'             => $r['school'],
+            'department'         => $r['department'],
+            'role'               => $theirRole,
+            'subjects'           => $theirSubj,
+            'learningStyles'     => safeJsonArray($r['learning_styles']),
+            'studyStyles'        => safeJsonArray($r['study_styles']),
+            'profilePhotoUrl'    => $r['profile_photo_url'],
+            'rating'             => (float)($r['rating'] ?? 0),
+            'ratingCount'        => (int)($r['rating_count'] ?? 0),
+            'strengths'          => $theirStr,
+            'weaknesses'         => $theirWeak,
+            'bio'                => $r['bio'],
+            'matchedAt'          => $r['matched_at'],
+            'compatibilityScore' => $score,
+        ];
+    }
+
+    if (!empty($staleIds)) {
+        $placeholders = implode(',', array_fill(0, count($staleIds), '?'));
+        $pdo->prepare("DELETE FROM matches WHERE id IN ($placeholders)")
+            ->execute($staleIds);
+    }
 
     respond(true, 'Matches fetched', $matches);
 }
@@ -578,7 +828,7 @@ function handleGetResources(PDO $pdo): void {
         'title'        => $r['title'],
         'subject'      => $r['subject'],
         'description'  => $r['description'],
-        'authorName'   => $r['author_name'] ?? null,   // ✅ NEW
+        'authorName'   => $r['author_name'] ?? null,
         'uploaderName' => $r['uploader_name'],
         'fileUrl'      => $r['file_path']
             ? 'http://localhost/StudyMatch/studymatch-api/' . $r['file_path']
@@ -595,7 +845,7 @@ function handleUploadResource(PDO $pdo): void {
     $title       = trim($_POST['title']   ?? '');
     $subject     = trim($_POST['subject'] ?? '');
     $description = trim($_POST['description'] ?? '');
-    $authorName  = trim($_POST['author_name'] ?? '');  // ✅ NEW
+    $authorName  = trim($_POST['author_name'] ?? '');
 
     if (empty($uploaderId) || empty($title) || empty($subject))
         respond(false, 'Missing required fields', null, 400);

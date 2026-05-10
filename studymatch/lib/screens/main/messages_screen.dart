@@ -68,9 +68,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
-    final me    = state.currentUser;
-    final matched = state.matchedUsers; // ✅ users I swiped right on
+    final state   = context.watch<AppState>();
+    final me      = state.currentUser;
+    final matched = state.matchedUsers;
 
     return Scaffold(
       body: SafeArea(
@@ -136,7 +136,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
             ),
             const SizedBox(height: 16),
 
-            // ✅ Matched users row (like Tinder)
+            // Matched users row
             if (matched.isNotEmpty) ...[
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -239,21 +239,27 @@ class _MessagesScreenState extends State<MessagesScreen> {
               const SizedBox(height: 8),
             ],
 
-            // Inbox
-            Expanded(child: _buildInbox(me?.id ?? '')),
+            // Inbox — filtered to matched users only
+            Expanded(child: _buildInbox(state, me?.id ?? '')),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildInbox(String myId) {
+  Widget _buildInbox(AppState state, String myId) {
     if (_loadingInbox) {
       return const Center(
           child: CircularProgressIndicator(color: AppTheme.primary));
     }
 
-    if (_inbox.isEmpty) {
+    // ✅ Only show inbox entries whose participant is a confirmed match in DB
+    final matchedIds = state.matchedUsers.map((u) => u.id).toSet();
+    final filteredInbox = _inbox
+        .where((c) => matchedIds.contains(c['participantId'] as String?))
+        .toList();
+
+    if (filteredInbox.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -281,15 +287,15 @@ class _MessagesScreenState extends State<MessagesScreen> {
       color: AppTheme.primary,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20),
-        itemCount: _inbox.length,
+        itemCount: filteredInbox.length,
         separatorBuilder: (_, __) =>
             const Divider(color: AppTheme.divider, height: 1),
         itemBuilder: (ctx, i) {
-          final c       = _inbox[i];
+          final c        = filteredInbox[i];
           final isUnread = (c['unreadCount'] as int? ?? 0) > 0;
-          final isMe    = c['lastMessageSenderId'] == myId;
-          final lastMsg = c['lastMessage']     as String? ?? '';
-          final time    = c['lastMessageTime'] as String? ?? '';
+          final isMe     = c['lastMessageSenderId'] == myId;
+          final lastMsg  = c['lastMessage']     as String? ?? '';
+          final time     = c['lastMessageTime'] as String? ?? '';
 
           final participant = RealUser(
             id:         c['participantId']   as String,
@@ -314,7 +320,6 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
           return ListTile(
             contentPadding: const EdgeInsets.symmetric(vertical: 8),
-            // ✅ tap avatar → view profile
             leading: GestureDetector(
               onTap: () => _viewProfile(participant),
               child: UserAvatar(realUser: participant, radius: 26),
@@ -367,8 +372,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
             onTap: () => Navigator.push(
               ctx,
               MaterialPageRoute(
-                  builder: (_) =>
-                      ChatScreen(participant: participant)),
+                  builder: (_) => ChatScreen(participant: participant)),
             ).then((_) => _loadInbox()),
           );
         },
@@ -376,7 +380,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
     );
   }
 
-  // ✅ New message sheet — shows matched users first
+  // ✅ New message sheet — shows matched users only
   void _showNewMessageSheet(BuildContext context, AppState state) {
     showModalBottomSheet(
       context: context,
@@ -601,7 +605,6 @@ class _ChatScreenState extends State<ChatScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: GestureDetector(
-          // ✅ tap name/avatar in chat → view their profile
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
