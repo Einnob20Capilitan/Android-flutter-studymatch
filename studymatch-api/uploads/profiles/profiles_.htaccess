@@ -1,0 +1,8 @@
+# Place this file at:
+# xampp/htdocs/StudyMatch/studymatch-api/uploads/profiles/.htaccess
+
+<IfModule mod_headers.c>
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "GET, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Content-Type, Origin, Accept"
+</IfModule>

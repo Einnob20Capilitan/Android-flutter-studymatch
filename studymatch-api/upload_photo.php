@@ -1,0 +1,158 @@
+<?php
+require_once __DIR__ . '/db.php';
+
+// ── CORS — must be FIRST ──────────────────────────────────────────────────
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Accept, Authorization, X-Requested-With, Origin');
+header('Access-Control-Max-Age: 86400');
+header('Content-Type: application/json');
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    echo json_encode(['success' => false, 'message' => 'Method not allowed']);
+    exit;
+}
+
+define('PROFILE_UPLOAD_DIR', __DIR__ . '/uploads/profiles/');
+define('MAX_PHOTO_SIZE',      5 * 1024 * 1024);
+define('ALLOWED_MIME', ['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+
+$newName = '';
+
+$contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+$isJson      = strpos($contentType, 'application/json') !== false;
+
+if ($isJson) {
+    // ── PATH A: Flutter Web sends base64 JSON ─────────────────────────────
+    $body = json_decode(file_get_contents('php://input'), true);
+    if (!$body) {
+        echo json_encode(['success' => false, 'message' => 'Invalid JSON body']);
+        exit;
+    }
+
+    $userId      = trim($body['id']       ?? '');
+    $base64Photo = trim($body['photo']    ?? '');
+    $fileName    = trim($body['fileName'] ?? 'photo.jpg');
+    $mimeType    = trim($body['mimeType'] ?? 'image/jpeg');
+
+    if (empty($userId) || empty($base64Photo)) {
+        echo json_encode(['success' => false, 'message' => 'Missing id or photo']);
+        exit;
+    }
+    if (!in_array($mimeType, ALLOWED_MIME, true)) {
+        echo json_encode(['success' => false, 'message' => "MIME type '$mimeType' not allowed"]);
+        exit;
+    }
+
+    $photoBytes = base64_decode($base64Photo);
+    if ($photoBytes === false) {
+        echo json_encode(['success' => false, 'message' => 'Invalid base64 data']);
+        exit;
+    }
+    if (strlen($photoBytes) > MAX_PHOTO_SIZE) {
+        echo json_encode(['success' => false, 'message' => 'Photo too large. Max 5 MB.']);
+        exit;
+    }
+
+    $tmpPath = tempnam(sys_get_temp_dir(), 'sm_photo_');
+    file_put_contents($tmpPath, $photoBytes);
+    $detectedMime = mime_content_type($tmpPath);
+
+    if (!in_array($detectedMime, ALLOWED_MIME, true)) {
+        @unlink($tmpPath);
+        echo json_encode(['success' => false, 'message' => "Detected type '$detectedMime' not allowed"]);
+        exit;
+    }
+
+    if (!is_dir(PROFILE_UPLOAD_DIR)) mkdir(PROFILE_UPLOAD_DIR, 0755, true);
+
+    $safeId = preg_replace('/[^a-zA-Z0-9_\-]/', '', $userId);
+    foreach (glob(PROFILE_UPLOAD_DIR . 'profile_' . $safeId . '_*') ?: [] as $f) @unlink($f);
+
+    $ext     = strtolower(pathinfo($fileName, PATHINFO_EXTENSION)) ?: 'jpg';
+    $safeExt = preg_replace('/[^a-zA-Z0-9]/', '', $ext);
+    $newName = 'profile_' . $safeId . '_' . time() . '.' . $safeExt;
+    $dest    = PROFILE_UPLOAD_DIR . $newName;
+
+    if (!rename($tmpPath, $dest)) {
+        @unlink($tmpPath);
+        echo json_encode(['success' => false, 'message' => 'Failed to save photo']);
+        exit;
+    }
+    chmod($dest, 0644);
+
+} else {
+    // ── PATH B: Native app multipart/form-data ────────────────────────────
+    $userId = trim($_POST['id'] ?? '');
+    if (empty($userId)) {
+        echo json_encode(['success' => false, 'message' => 'User ID required']);
+        exit;
+    }
+    if (!isset($_FILES['photo']) || $_FILES['photo']['error'] === UPLOAD_ERR_NO_FILE) {
+        echo json_encode(['success' => false, 'message' => 'No photo uploaded']);
+        exit;
+    }
+
+    $file    = $_FILES['photo'];
+    $tmpPath = $file['tmp_name'];
+
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        echo json_encode(['success' => false, 'message' => 'Upload error code: ' . $file['error']]);
+        exit;
+    }
+    if ($file['size'] > MAX_PHOTO_SIZE) {
+        echo json_encode(['success' => false, 'message' => 'Photo too large. Max 5 MB.']);
+        exit;
+    }
+
+    $mimeType = mime_content_type($tmpPath);
+    if (!in_array($mimeType, ALLOWED_MIME, true)) {
+        echo json_encode(['success' => false, 'message' => "Type '$mimeType' not allowed"]);
+        exit;
+    }
+
+    if (!is_dir(PROFILE_UPLOAD_DIR)) mkdir(PROFILE_UPLOAD_DIR, 0755, true);
+
+    $safeId = preg_replace('/[^a-zA-Z0-9_\-]/', '', $userId);
+    foreach (glob(PROFILE_UPLOAD_DIR . 'profile_' . $safeId . '_*') ?: [] as $f) @unlink($f);
+
+    $ext     = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION)) ?: 'jpg';
+    $safeExt = preg_replace('/[^a-zA-Z0-9]/', '', $ext);
+    $newName = 'profile_' . $safeId . '_' . time() . '.' . $safeExt;
+    $dest    = PROFILE_UPLOAD_DIR . $newName;
+
+    if (!move_uploaded_file($tmpPath, $dest)) {
+        echo json_encode(['success' => false, 'message' => 'Failed to save photo']);
+        exit;
+    }
+    chmod($dest, 0644);
+}
+
+// ── Save bare filename to DB ──────────────────────────────────────────────
+// Storing just the filename (not a full URL) means the value works from any
+// host. ProfileAvatar._safeUrl() builds the correct URL at display time.
+try {
+    $pdo = getDB();
+    $pdo->prepare('UPDATE profiles SET profile_photo_url = ? WHERE user_id = ?')
+        ->execute([$newName, $userId]);
+} catch (Exception $e) {
+    error_log('Photo DB update failed: ' . $e->getMessage());
+}
+
+// ── Response ──────────────────────────────────────────────────────────────
+// IMPORTANT: return BOTH 'fileName' (bare filename) AND 'url' (full URL).
+// The Flutter client uses 'fileName' to store a host-independent value.
+// Native apps that need a ready-made URL can use 'url' directly.
+$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$url    = $scheme . '://' . $host . '/StudyMatch/studymatch-api/serve_photo.php?file=' . $newName;
+
+echo json_encode([
+    'success'  => true,
+    'fileName' => $newName,   // ← bare filename, e.g. "profile_123_456.png"
+    'url'      => $url,       // ← full URL for convenience (native apps)
+]);

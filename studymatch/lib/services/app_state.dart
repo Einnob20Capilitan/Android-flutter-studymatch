@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:http/http.dart' as http;
 import '../models/models.dart';
 import 'api_service.dart';
 import 'message_service.dart';
+import 'package:flutter/foundation.dart';
+
 
 enum AuthState { unauthenticated, onboarding, authenticated }
 
@@ -22,15 +25,21 @@ class AppState extends ChangeNotifier {
   bool _loadingResources = false;
   final List<Conversation> _conversations = [];
 
-  UserModel?       get currentUser      => _currentUser;
-  bool             get isLoggedIn       => _currentUser != null;
-  int              get onboardingStep   => _onboardingStep;
-  List<RealUser>   get matchUsers       => List.unmodifiable(_matchUsers);
-  List<RealUser>   get matchedUsers     => List.unmodifiable(_matchedUsers);
-  List<DBResource> get dbResources      => List.unmodifiable(_dbResources);
-  bool             get loadingUsers     => _loadingUsers;
-  bool             get loadingResources => _loadingResources;
-  List<Conversation> get conversations  => List.unmodifiable(_conversations);
+  UserModel?         get currentUser      => _currentUser;
+  bool               get isLoggedIn       => _currentUser != null;
+  int                get onboardingStep   => _onboardingStep;
+  List<RealUser>     get matchUsers       => List.unmodifiable(_matchUsers);
+  List<RealUser>     get matchedUsers     => List.unmodifiable(_matchedUsers);
+  List<DBResource>   get dbResources      => List.unmodifiable(_dbResources);
+  bool               get loadingUsers     => _loadingUsers;
+  bool               get loadingResources => _loadingResources;
+  List<Conversation> get conversations    => List.unmodifiable(_conversations);
+
+  // ── IMPORTANT: Change the native IP to your machine's LAN address ─────────
+  static String get _baseUrl => kIsWeb
+    ? 'http://localhost/StudyMatch/studymatch-api'
+    : 'http://192.168.1.5/StudyMatch/studymatch-api';
+  // ─────────────────────────────────────────────────────────────────────────
 
   int get unreadMessageCount =>
       _conversations.fold(0, (sum, c) => sum + c.unreadCount);
@@ -132,7 +141,8 @@ class AppState extends ChangeNotifier {
     _loadingResources = true;
     notifyListeners();
     try {
-      _dbResources = await ApiService.getResources(subject: subject, search: search);
+      _dbResources = await ApiService.getResources(
+          subject: subject, search: search);
     } catch (_) {
       _dbResources = [];
     }
@@ -162,12 +172,125 @@ class AppState extends ChangeNotifier {
     return result;
   }
 
+  // ── MIME helper ───────────────────────────────────────────────────────────
+  static String _mimeFromExt(String ext) {
+    switch (ext.toLowerCase()) {
+      case 'jpg':
+      case 'jpeg': return 'image/jpeg';
+      case 'png':  return 'image/png';
+      case 'gif':  return 'image/gif';
+      case 'webp': return 'image/webp';
+      default:     return 'image/jpeg';
+    }
+  }
+
+  // ── Extract bare filename from any URL or path format ─────────────────────
+  /// Given any of these inputs:
+  ///   "profile_123_456.png"                        → "profile_123_456.png"
+  ///   "uploads/profiles/profile_123_456.png"       → "profile_123_456.png"
+  ///   "http://localhost/.../serve_photo.php?file=profile_123_456.png"
+  ///                                                → "profile_123_456.png"
+  /// Always returns just the bare filename so ProfileAvatar can build
+  /// the correct host-specific URL at display time.
+  static String _extractFileName(String value) {
+    if (value.startsWith('http')) {
+      // It's a full URL — extract the 'file' query parameter
+      final uri = Uri.tryParse(value);
+      if (uri != null) {
+        final fileParam = uri.queryParameters['file'];
+        if (fileParam != null && fileParam.isNotEmpty) return fileParam;
+        // Fallback: last path segment
+        if (uri.pathSegments.isNotEmpty) return uri.pathSegments.last;
+      }
+    }
+    // It's a relative path or bare filename — take the last segment
+    return value.split('/').last;
+  }
+
+  // ── Upload profile photo ──────────────────────────────────────────────────
+  /// Sends the photo as base64 JSON (not multipart/form-data) so Flutter Web
+  /// doesn't trigger a CORS preflight OPTIONS request.
+  ///
+  /// Always stores just the bare FILENAME (e.g. "profile_123_456.png") in
+  /// the session and DB. ProfileAvatar._safeUrl() converts that to a proper
+  /// localhost URL at display time, which is then loaded as a native <img>
+  /// element (WebHtmlElementStrategy.allow) — bypassing CORS entirely.
+  Future<String?> uploadProfilePhoto({
+    required Uint8List photoBytes,
+    required String    fileName,
+  }) async {
+    if (_currentUser == null) return null;
+    try {
+      final uri = Uri.parse('$_baseUrl/upload_profile_photo.php');
+
+      final base64Photo = base64Encode(photoBytes);
+      final ext         = fileName.contains('.')
+          ? fileName.split('.').last.toLowerCase()
+          : 'jpg';
+
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'id':       _currentUser!.id,
+          'photo':    base64Photo,
+          'fileName': fileName,
+          'mimeType': _mimeFromExt(ext),
+        }),
+      );
+
+      debugPrint('Photo upload status: ${response.statusCode}');
+      debugPrint('Photo upload body:   ${response.body}');
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (data['success'] == true) {
+        // ── KEY FIX ────────────────────────────────────────────────────────
+        // Priority 1: 'fileName' key — bare filename, ideal.
+        //   (returned by the updated upload_photo.php above)
+        //
+        // Priority 2: extract filename from 'url' key — handles the old PHP
+        //   that only returned a full URL like:
+        //   "http://localhost/.../serve_photo.php?file=profile_123.png"
+        //   We parse out "profile_123.png" so we still store a bare filename.
+        //
+        // NEVER store the full URL — it embeds the server's host/IP and
+        // breaks when loaded from a different origin on Flutter Web.
+        // ──────────────────────────────────────────────────────────────────
+        final rawValue = (data['fileName'] as String?)
+                      ?? (data['url']      as String?);
+
+        if (rawValue == null || rawValue.isEmpty) {
+          debugPrint('Photo upload: no fileName or url in response');
+          return null;
+        }
+
+        // Always reduce to a bare filename regardless of what we received
+        final storedValue = _extractFileName(rawValue);
+        debugPrint('Photo uploaded, storing bare filename: $storedValue');
+
+        final json = _currentUser!.toJson()
+          ..['profilePhotoUrl'] = storedValue;
+        _currentUser = UserModel.fromJson(json);
+        await _saveSession(_currentUser!);
+        notifyListeners();
+
+        return storedValue;
+      }
+
+      debugPrint('Photo upload failed: ${data['message']}');
+      return null;
+    } catch (e) {
+      debugPrint('Photo upload error: $e');
+      return null;
+    }
+  }
+
   // ── Rate user ─────────────────────────────────────────────────────────────
-  /// Submit or update a star rating + optional written review for a tutor.
   Future<Map<String, dynamic>> rateUser({
     required String ratedId,
     required int score,
-    String review = '', // ✅ optional review text
+    String review = '',
   }) async {
     try {
       final result = await ApiService.rateUser(
@@ -178,7 +301,7 @@ class AppState extends ChangeNotifier {
       );
       if (result['success'] == true) {
         final data = result['data'] as Map<String, dynamic>?;
-        _updateRatingInList(_matchUsers, ratedId, data);
+        _updateRatingInList(_matchUsers,   ratedId, data);
         _updateRatingInList(_matchedUsers, ratedId, data);
         notifyListeners();
       }
@@ -188,7 +311,8 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void _updateRatingInList(List<RealUser> list, String id, Map<String, dynamic>? data) {
+  void _updateRatingInList(
+      List<RealUser> list, String id, Map<String, dynamic>? data) {
     final idx = list.indexWhere((u) => u.id == id);
     if (idx != -1 && data != null) {
       final u = list[idx];
@@ -208,7 +332,9 @@ class AppState extends ChangeNotifier {
 
   // ── Sign Up ───────────────────────────────────────────────────────────────
   Future<String?> signUp({
-    required String name, required String email, required String password,
+    required String name,
+    required String email,
+    required String password,
   }) async {
     try {
       final id = DateTime.now().millisecondsSinceEpoch.toString();
@@ -216,19 +342,23 @@ class AppState extends ChangeNotifier {
           id: id, name: name, email: email, password: password);
       if (result['success'] == true) return null;
       return result['message'] as String? ?? 'Registration failed';
-    } catch (e) { return 'Network error: $e'; }
+    } catch (e) {
+      return 'Network error: $e';
+    }
   }
 
   // ── Sign In ───────────────────────────────────────────────────────────────
   Future<String?> signIn({
-    required String email, required String password,
+    required String email,
+    required String password,
   }) async {
     try {
       final result = await ApiService.login(email: email, password: password);
       if (result['success'] == true) {
         final rawData = result['data'];
-        if (rawData == null || rawData is! Map<String, dynamic>)
+        if (rawData == null || rawData is! Map<String, dynamic>) {
           return 'Login failed: unexpected server response';
+        }
         final user = UserModel.fromJson(rawData);
         _currentUser = user;
         _onboardingStep = 0;
@@ -243,23 +373,28 @@ class AppState extends ChangeNotifier {
         return null;
       }
       return result['message'] as String? ?? 'Login failed';
-    } catch (e) { return 'Network error: $e'; }
+    } catch (e) {
+      return 'Network error: $e';
+    }
   }
 
   // ── Forgot Password ───────────────────────────────────────────────────────
   Future<Map<String, dynamic>> forgotPassword(String email) async {
-    try { return await ApiService.forgotPassword(email); }
-    catch (e) { return {'success': false, 'message': 'Network error: $e'}; }
+    try {
+      return await ApiService.forgotPassword(email);
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: $e'};
+    }
   }
 
   // ── Sign Out ──────────────────────────────────────────────────────────────
   Future<void> signOut() async {
-    _currentUser  = null;
+    _currentUser    = null;
     _onboardingStep = 0;
-    _matchUsers   = [];
-    _matchedUsers = [];
-    _passedIds    = [];
-    _dbResources  = [];
+    _matchUsers     = [];
+    _matchedUsers   = [];
+    _passedIds      = [];
+    _dbResources    = [];
     _conversations.clear();
     await _clearSession();
     notifyListeners();
@@ -274,7 +409,10 @@ class AppState extends ChangeNotifier {
   }
 
   void previousOnboardingStep() {
-    if (_onboardingStep > 0) { _onboardingStep--; notifyListeners(); }
+    if (_onboardingStep > 0) {
+      _onboardingStep--;
+      notifyListeners();
+    }
   }
 
   void updateUserProfile(Map<String, dynamic> fields) {
@@ -287,15 +425,24 @@ class AppState extends ChangeNotifier {
   Future<void> completeOnboarding() async {
     if (_currentUser == null) return;
     final updated = UserModel(
-      id: _currentUser!.id, fullName: _currentUser!.fullName,
-      email: _currentUser!.email, profilePhotoUrl: _currentUser!.profilePhotoUrl,
-      school: _currentUser!.school, department: _currentUser!.department,
-      topic: _currentUser!.topic, yearLevel: _currentUser!.yearLevel,
-      dateOfBirth: _currentUser!.dateOfBirth, gender: _currentUser!.gender,
-      bio: _currentUser!.bio, role: _currentUser!.role,
-      subjects: _currentUser!.subjects, learningStyles: _currentUser!.learningStyles,
-      studyStyles: _currentUser!.studyStyles, availability: _currentUser!.availability,
-      strengths: _currentUser!.strengths, weaknesses: _currentUser!.weaknesses,
+      id:                 _currentUser!.id,
+      fullName:           _currentUser!.fullName,
+      email:              _currentUser!.email,
+      profilePhotoUrl:    _currentUser!.profilePhotoUrl,
+      school:             _currentUser!.school,
+      department:         _currentUser!.department,
+      topic:              _currentUser!.topic,
+      yearLevel:          _currentUser!.yearLevel,
+      dateOfBirth:        _currentUser!.dateOfBirth,
+      gender:             _currentUser!.gender,
+      bio:                _currentUser!.bio,
+      role:               _currentUser!.role,
+      subjects:           _currentUser!.subjects,
+      learningStyles:     _currentUser!.learningStyles,
+      studyStyles:        _currentUser!.studyStyles,
+      availability:       _currentUser!.availability,
+      strengths:          _currentUser!.strengths,
+      weaknesses:         _currentUser!.weaknesses,
       onboardingComplete: true,
     );
     await ApiService.updateUser(updated);
@@ -313,15 +460,20 @@ class AppState extends ChangeNotifier {
     try {
       final json = _currentUser!.toJson()..addAll(fields);
       final updated = UserModel.fromJson(json);
+
       final result = await ApiService.updateUser(updated);
+
       if (result['success'] == true) {
         _currentUser = updated;
         await _saveSession(updated);
         notifyListeners();
         return null;
       }
+
       return result['message'] as String? ?? 'Update failed';
-    } catch (e) { return 'Network error: $e'; }
+    } catch (e) {
+      return 'Network error: $e';
+    }
   }
 
   // ── Compatibility check ───────────────────────────────────────────────────
@@ -345,7 +497,6 @@ class AppState extends ChangeNotifier {
   }
 
   // ── Match actions ─────────────────────────────────────────────────────────
-
   Future<bool> likeUser(String userId) async {
     final idx = _matchUsers.indexWhere((u) => u.id == userId);
     if (idx == -1) return false;
@@ -425,7 +576,10 @@ class AppState extends ChangeNotifier {
   // ── Unread count ──────────────────────────────────────────────────────────
   Future<int> fetchUnreadCount() async {
     if (_currentUser == null) return 0;
-    try { return await MessageService.getUnreadCount(userId: _currentUser!.id); }
-    catch (_) { return 0; }
+    try {
+      return await MessageService.getUnreadCount(userId: _currentUser!.id);
+    } catch (_) {
+      return 0;
+    }
   }
 }

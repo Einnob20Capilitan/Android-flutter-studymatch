@@ -138,7 +138,7 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                     ]),
                     const SizedBox(height: 16),
 
-                    // Filter chips (browse only — not used in upload anymore)
+                    // Filter chips
                     SizedBox(
                       height: 36,
                       child: ListView.separated(
@@ -261,6 +261,13 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
     String?   fileName;
     bool uploading = false;
 
+    // ✅ Subject list for the dropdown (matches filter list minus 'All')
+    final subjectOptions = [
+      'Mathematics', 'Physics', 'Chemistry', 'Biology',
+      'Computer Science', 'History', 'Statistics', 'English',
+    ];
+    String? selectedSubject; // ✅ starts null so user must pick one
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -331,6 +338,45 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                     prefixIcon: const Icon(Icons.title,
                         color: AppTheme.textMuted, size: 20),
                   ),
+                ),
+                const SizedBox(height: 12),
+
+                // ── Subject dropdown ✅ FIXED ──────────────────────────
+                DropdownButtonFormField<String>(
+                  value: selectedSubject,
+                  dropdownColor: AppTheme.bgCard,
+                  style: const TextStyle(
+                      color: AppTheme.textPrimary, fontFamily: 'Poppins'),
+                  decoration: InputDecoration(
+                    labelText: 'Subject *',
+                    labelStyle:
+                        const TextStyle(color: AppTheme.textMuted),
+                    filled: true,
+                    fillColor: AppTheme.inputBg,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: AppTheme.divider)),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: AppTheme.divider)),
+                    prefixIcon: const Icon(Icons.book_outlined,
+                        color: AppTheme.textMuted, size: 20),
+                  ),
+                  hint: const Text('Select a subject',
+                      style: TextStyle(
+                          color: AppTheme.textMuted, fontFamily: 'Poppins')),
+                  items: subjectOptions
+                      .map((s) => DropdownMenuItem(
+                            value: s,
+                            child: Text(s,
+                                style: const TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontFamily: 'Poppins')),
+                          ))
+                      .toList(),
+                  onChanged: (val) => setS(() => selectedSubject = val),
                 ),
                 const SizedBox(height: 12),
 
@@ -456,10 +502,12 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
+                    // ✅ FIXED: also require selectedSubject to not be null
                     onPressed: (uploading ||
                             fileBytes == null ||
                             titleCtrl.text.trim().isEmpty ||
-                            authorCtrl.text.trim().isEmpty)
+                            authorCtrl.text.trim().isEmpty ||
+                            selectedSubject == null)
                         ? null
                         : () async {
                             setS(() => uploading = true);
@@ -467,7 +515,7 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                                 .read<AppState>()
                                 .uploadResource(
                               title:       titleCtrl.text.trim(),
-                              subject:     '',
+                              subject:     selectedSubject!,   // ✅ FIXED
                               description: descCtrl.text.trim(),
                               authorName:  authorCtrl.text.trim(),
                               fileBytes:   fileBytes!,
@@ -591,7 +639,6 @@ class _ResourceCard extends StatelessWidget {
                 ],
                 const SizedBox(height: 8),
                 Row(children: [
-                  // Subject chip — hidden if empty
                   if (resource.subject.isNotEmpty) ...[
                     Container(
                       padding: const EdgeInsets.symmetric(

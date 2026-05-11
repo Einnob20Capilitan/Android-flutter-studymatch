@@ -10,8 +10,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit();
 
 define('MSG_API_KEY', 'studymatch_api_key_2026');
 
+// ── File upload config ────────────────────────────────────────────────────────
+define('UPLOAD_DIR',      __DIR__ . '/uploads/messages/');
+define('UPLOAD_URL_BASE', 'http://localhost/StudyMatch/studymatch-api/uploads/messages/');
+define('MAX_FILE_SIZE',   10 * 1024 * 1024); // 10 MB
+define('ALLOWED_MIME', [
+    // images
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+    // docs
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    // text / misc
+    'text/plain',
+    'application/zip',
+]);
+
+// ── Router ────────────────────────────────────────────────────────────────────
 $action = trim($_GET['action'] ?? '');
-$apiKey = trim($_GET['api_key'] ?? '');
+$apiKey = trim($_GET['api_key'] ?? $_POST['api_key'] ?? '');
 $body   = json_decode(file_get_contents('php://input'), true) ?? [];
 
 if ($apiKey !== MSG_API_KEY) {
@@ -21,14 +42,13 @@ if ($apiKey !== MSG_API_KEY) {
 try {
     $pdo = getDB();
     $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
-
-    // ✅ Force utf8mb4 and unicode_ci for this connection to fix collation mismatch
     $pdo->exec("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
     $pdo->exec("SET character_set_connection = utf8mb4");
     $pdo->exec("SET collation_connection = utf8mb4_unicode_ci");
 
     switch ($action) {
         case 'send':         handleSend($pdo, $body);       break;
+        case 'send_file':    handleSendFile($pdo);           break;  // ✅ NEW
         case 'get_messages': handleGetMessages($pdo);       break;
         case 'get_inbox':    handleGetInbox($pdo);          break;
         case 'mark_read':    handleMarkRead($pdo, $body);   break;
@@ -52,7 +72,7 @@ function respond(bool $success, string $message, $data = null, int $code = 200):
     exit();
 }
 
-// ── Send message ──────────────────────────────────────────────────────────────
+// ── Send text message ─────────────────────────────────────────────────────────
 function handleSend(PDO $pdo, array $b): void {
     $senderId   = trim($b['sender_id']   ?? '');
     $receiverId = trim($b['receiver_id'] ?? '');
@@ -67,8 +87,8 @@ function handleSend(PDO $pdo, array $b): void {
 
     $id = uniqid('msg_', true);
     $pdo->prepare('
-        INSERT INTO messages (id, sender_id, receiver_id, content)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO messages (id, sender_id, receiver_id, content, message_type, file_url, file_name, file_size)
+        VALUES (?, ?, ?, ?, \'text\', NULL, NULL, NULL)
     ')->execute([$id, $senderId, $receiverId, $content]);
 
     respond(true, 'Message sent', [
@@ -76,6 +96,75 @@ function handleSend(PDO $pdo, array $b): void {
         'senderId'    => $senderId,
         'receiverId'  => $receiverId,
         'content'     => $content,
+        'messageType' => 'text',
+        'fileUrl'     => null,
+        'fileName'    => null,
+        'fileSize'    => null,
+        'isRead'      => false,
+        'createdAt'   => date('Y-m-d H:i:s'),
+        'senderName'  => '',
+    ]);
+}
+
+// ── Send file / image message ─────────────────────────────────────────────────
+function handleSendFile(PDO $pdo): void {
+    $senderId   = trim($_POST['sender_id']   ?? '');
+    $receiverId = trim($_POST['receiver_id'] ?? '');
+
+    if (empty($senderId) || empty($receiverId))
+        respond(false, 'sender_id and receiver_id are required', null, 400);
+    if ($senderId === $receiverId)
+        respond(false, 'Cannot message yourself', null, 400);
+    if (!isset($_FILES['file']))
+        respond(false, 'No file uploaded', null, 400);
+
+    $file     = $_FILES['file'];
+    $tmpPath  = $file['tmp_name'];
+    $origName = basename($file['name']);
+    $fileSize = $file['size'];
+    $mimeType = mime_content_type($tmpPath);
+
+    // Validate
+    if ($file['error'] !== UPLOAD_ERR_OK)
+        respond(false, 'Upload error code: ' . $file['error'], null, 400);
+    if ($fileSize > MAX_FILE_SIZE)
+        respond(false, 'File too large. Max 10 MB.', null, 400);
+    if (!in_array($mimeType, ALLOWED_MIME, true))
+        respond(false, 'File type not allowed: ' . $mimeType, null, 400);
+
+    // Create upload dir if needed
+    if (!is_dir(UPLOAD_DIR)) {
+        mkdir(UPLOAD_DIR, 0755, true);
+    }
+
+    // Build a safe unique filename
+    $ext      = pathinfo($origName, PATHINFO_EXTENSION);
+    $safeExt  = preg_replace('/[^a-zA-Z0-9]/', '', $ext);
+    $fileName = uniqid('file_', true) . ($safeExt ? '.' . $safeExt : '');
+    $destPath = UPLOAD_DIR . $fileName;
+
+    if (!move_uploaded_file($tmpPath, $destPath))
+        respond(false, 'Failed to save file', null, 500);
+
+    $fileUrl     = UPLOAD_URL_BASE . $fileName;
+    $messageType = str_starts_with($mimeType, 'image/') ? 'image' : 'file';
+    $content     = $messageType === 'image' ? '📷 Image' : '📎 ' . $origName;
+
+    $id = uniqid('msg_', true);
+    $pdo->prepare('
+        INSERT INTO messages (id, sender_id, receiver_id, content, message_type, file_url, file_name, file_size)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ')->execute([$id, $senderId, $receiverId, $content, $messageType, $fileUrl, $origName, $fileSize]);
+
+    respond(true, 'File sent', [
+        'id'          => $id,
+        'senderId'    => $senderId,
+        'receiverId'  => $receiverId,
+        'content'     => $content,
+        'messageType' => $messageType,
+        'fileUrl'     => $fileUrl,
+        'fileName'    => $origName,
+        'fileSize'    => $fileSize,
         'isRead'      => false,
         'createdAt'   => date('Y-m-d H:i:s'),
         'senderName'  => '',
@@ -92,13 +181,16 @@ function handleGetMessages(PDO $pdo): void {
     if (empty($userId) || empty($otherId))
         respond(false, 'user_id and other_id are required', null, 400);
 
-    // ✅ Inline LIMIT/OFFSET as integers and use COLLATE on the JOIN to fix collation mismatch
     $sql = "
         SELECT
             m.id,
             m.sender_id,
             m.receiver_id,
             m.content,
+            m.message_type,
+            m.file_url,
+            m.file_name,
+            m.file_size,
             m.is_read,
             m.created_at,
             u.full_name
@@ -122,13 +214,17 @@ function handleGetMessages(PDO $pdo): void {
     ')->execute([$otherId, $userId]);
 
     $messages = array_map(fn($r) => [
-        'id'         => $r['id'],
-        'senderId'   => $r['sender_id'],
-        'receiverId' => $r['receiver_id'],
-        'content'    => $r['content'],
-        'isRead'     => (bool)(int)$r['is_read'],
-        'createdAt'  => $r['created_at'],
-        'senderName' => $r['full_name'],
+        'id'          => $r['id'],
+        'senderId'    => $r['sender_id'],
+        'receiverId'  => $r['receiver_id'],
+        'content'     => $r['content'],
+        'messageType' => $r['message_type'] ?? 'text',
+        'fileUrl'     => $r['file_url'],
+        'fileName'    => $r['file_name'],
+        'fileSize'    => $r['file_size'] !== null ? (int)$r['file_size'] : null,
+        'isRead'      => (bool)(int)$r['is_read'],
+        'createdAt'   => $r['created_at'],
+        'senderName'  => $r['full_name'],
     ], $rows);
 
     respond(true, 'Messages fetched', $messages);
@@ -159,15 +255,11 @@ function handleGetInbox(PDO $pdo): void {
     $conversations = [];
 
     foreach ($partners as $otherId) {
-        // Get last message
         $stmt = $pdo->prepare('
             SELECT
-                m.id,
-                m.sender_id,
-                m.receiver_id,
-                m.content,
-                m.is_read,
-                m.created_at
+                m.id, m.sender_id, m.receiver_id,
+                m.content, m.message_type, m.file_url, m.file_name, m.file_size,
+                m.is_read, m.created_at
             FROM messages m
             WHERE (m.sender_id = ? AND m.receiver_id = ?)
                OR (m.sender_id = ? AND m.receiver_id = ?)
@@ -178,7 +270,6 @@ function handleGetInbox(PDO $pdo): void {
         $lastMsg = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$lastMsg) continue;
 
-        // Get unread count
         $stmt = $pdo->prepare('
             SELECT COUNT(*) FROM messages
             WHERE sender_id = ? AND receiver_id = ? AND is_read = 0
@@ -186,22 +277,13 @@ function handleGetInbox(PDO $pdo): void {
         $stmt->execute([$otherId, $userId]);
         $unread = (int)$stmt->fetchColumn();
 
-        // Get other user info with COLLATE fix on the JOIN
         $stmt = $pdo->prepare('
             SELECT
-                u.id,
-                u.full_name,
-                u.email,
-                p.department,
-                p.school,
-                p.bio,
-                p.rating,
-                p.rating_count,
-                p.subjects,
-                p.strengths,
-                p.weaknesses,
-                p.learning_styles,
-                p.study_styles
+                u.id, u.full_name, u.email,
+                p.role, p.department, p.school, p.bio,
+                p.rating, p.rating_count,
+                p.subjects, p.strengths, p.weaknesses,
+                p.learning_styles, p.study_styles
             FROM users u
             LEFT JOIN profiles p ON p.user_id COLLATE utf8mb4_unicode_ci = u.id COLLATE utf8mb4_unicode_ci
             WHERE u.id = ?
@@ -210,10 +292,15 @@ function handleGetInbox(PDO $pdo): void {
         $other = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$other) continue;
 
+        // Compose preview label for file messages
+        $lastContent = $lastMsg['content'];
+        $lastMsgType = $lastMsg['message_type'] ?? 'text';
+
         $conversations[] = [
             'participantId'             => $other['id'],
             'participantName'           => $other['full_name'],
             'participantEmail'          => $other['email'],
+            'participantRole'           => $other['role'] ?? 'student',
             'participantDept'           => $other['department'],
             'participantSchool'         => $other['school'],
             'participantBio'            => $other['bio'],
@@ -224,7 +311,8 @@ function handleGetInbox(PDO $pdo): void {
             'participantWeaknesses'     => json_decode($other['weaknesses']      ?? '[]') ?: [],
             'participantLearningStyles' => json_decode($other['learning_styles'] ?? '[]') ?: [],
             'participantStudyStyles'    => json_decode($other['study_styles']    ?? '[]') ?: [],
-            'lastMessage'               => $lastMsg['content'],
+            'lastMessage'               => $lastContent,
+            'lastMessageType'           => $lastMsgType,
             'lastMessageSenderId'       => $lastMsg['sender_id'],
             'lastMessageTime'           => $lastMsg['created_at'],
             'unreadCount'               => $unread,

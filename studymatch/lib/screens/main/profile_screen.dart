@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../utils/app_theme.dart';
 import '../../services/app_state.dart';
+import '../../widgets/profile_avatar.dart';
 import 'edit_profile_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -63,38 +64,31 @@ class ProfileScreen extends StatelessWidget {
                     children: [
                       const SizedBox(height: 12),
 
-                      // Avatar
+                      // ✅ Avatar using ProfileAvatar widget
                       GestureDetector(
                         onTap: () => Navigator.push(context,
-                            MaterialPageRoute(builder: (_) => const EditProfileScreen())),
+                            MaterialPageRoute(
+                                builder: (_) => const EditProfileScreen())),
                         child: Stack(
                           children: [
-                            Container(
-                              width: 90, height: 90,
-                              decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                    colors: [AppTheme.primary, AppTheme.accent]),
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 3),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  user.fullName.isNotEmpty ? user.fullName[0].toUpperCase() : 'U',
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 38,
-                                      fontFamily: 'Poppins'),
-                                ),
-                              ),
+                            ProfileAvatar(
+                              photoUrl:    user.profilePhotoUrl,
+                              displayName: user.fullName,
+                              size:        90,
+                              borderColor: Colors.white,
+                              borderWidth: 3,
                             ),
                             Positioned(
-                              bottom: 2, right: 2,
+                              bottom: 2,
+                              right:  2,
                               child: Container(
-                                width: 26, height: 26,
+                                width:  26,
+                                height: 26,
                                 decoration: const BoxDecoration(
-                                    color: AppTheme.primary, shape: BoxShape.circle),
-                                child: const Icon(Icons.edit, color: Colors.white, size: 14),
+                                    color: AppTheme.primary,
+                                    shape: BoxShape.circle),
+                                child: const Icon(Icons.edit,
+                                    color: Colors.white, size: 14),
                               ),
                             ),
                           ],
@@ -121,11 +115,13 @@ class ProfileScreen extends StatelessWidget {
 
                       // Role badge
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 6),
                         decoration: BoxDecoration(
                           color: roleColor.withOpacity(0.2),
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: roleColor.withOpacity(0.5)),
+                          border:
+                              Border.all(color: roleColor.withOpacity(0.5)),
                         ),
                         child: Text(roleLabel,
                             style: TextStyle(
@@ -137,25 +133,34 @@ class ProfileScreen extends StatelessWidget {
                       const SizedBox(height: 8),
 
                       // School
-                      if (user.school != null && user.school!.isNotEmpty) ...[
-                        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                          const Icon(Icons.school_outlined, color: AppTheme.textMuted, size: 14),
-                          const SizedBox(width: 4),
-                          Text(user.school!,
-                              style: const TextStyle(
-                                  color: AppTheme.textMuted, fontFamily: 'Poppins', fontSize: 13)),
-                        ]),
+                      if (user.school != null &&
+                          user.school!.isNotEmpty) ...[
+                        Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.school_outlined,
+                                  color: AppTheme.textMuted, size: 14),
+                              const SizedBox(width: 4),
+                              Text(user.school!,
+                                  style: const TextStyle(
+                                      color: AppTheme.textMuted,
+                                      fontFamily: 'Poppins',
+                                      fontSize: 13)),
+                            ]),
                         const SizedBox(height: 4),
                       ],
 
                       // Department / Degree
-                      if (user.department != null && user.department!.isNotEmpty) ...[
+                      if (user.department != null &&
+                          user.department!.isNotEmpty) ...[
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 4),
                           decoration: BoxDecoration(
                             color: AppTheme.primary.withOpacity(0.15),
                             borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: AppTheme.primary.withOpacity(0.3)),
+                            border: Border.all(
+                                color: AppTheme.primary.withOpacity(0.3)),
                           ),
                           child: Text(user.department!,
                               style: const TextStyle(
@@ -170,7 +175,8 @@ class ProfileScreen extends StatelessWidget {
                       // Bio
                       if (user.bio != null && user.bio!.isNotEmpty) ...[
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 32),
                           child: Text(user.bio!,
                               textAlign: TextAlign.center,
                               style: const TextStyle(
@@ -186,13 +192,16 @@ class ProfileScreen extends StatelessWidget {
 
                       // Stats bar
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 20),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 16),
                           decoration: BoxDecoration(
                               color: AppTheme.bgCard,
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: AppTheme.divider)),
+                              border:
+                                  Border.all(color: AppTheme.divider)),
                           child: Row(
                             children: [
                               _ProfileStat(
@@ -242,19 +251,31 @@ class ProfileScreen extends StatelessWidget {
                               value: isTutor ? 'Tutor' : 'Student',
                               valueColor: roleColor,
                             ),
-                            if (user.gender != null && user.gender!.isNotEmpty)
-                              _InfoRow(icon: Icons.person_outline, label: 'Gender', value: user.gender!),
+                            if (user.gender != null &&
+                                user.gender!.isNotEmpty)
+                              _InfoRow(
+                                  icon: Icons.person_outline,
+                                  label: 'Gender',
+                                  value: user.gender!),
                             if (user.dateOfBirth != null)
                               _InfoRow(
                                 icon: Icons.cake_outlined,
                                 label: 'Birthday',
-                                value: '${user.dateOfBirth!.month}/${user.dateOfBirth!.day}/${user.dateOfBirth!.year}',
+                                value:
+                                    '${user.dateOfBirth!.month}/${user.dateOfBirth!.day}/${user.dateOfBirth!.year}',
                               ),
-                            if (user.school != null && user.school!.isNotEmpty)
-                              _InfoRow(icon: Icons.school_outlined, label: 'School', value: user.school!),
-                            if (user.department != null && user.department!.isNotEmpty)
+                            if (user.school != null &&
+                                user.school!.isNotEmpty)
                               _InfoRow(
-                                icon: isTutor ? Icons.workspace_premium_outlined : Icons.apartment_outlined,
+                                  icon: Icons.school_outlined,
+                                  label: 'School',
+                                  value: user.school!),
+                            if (user.department != null &&
+                                user.department!.isNotEmpty)
+                              _InfoRow(
+                                icon: isTutor
+                                    ? Icons.workspace_premium_outlined
+                                    : Icons.apartment_outlined,
                                 label: isTutor ? 'Degree' : 'Department',
                                 value: user.department!,
                               ),
@@ -263,67 +284,80 @@ class ProfileScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 12),
 
-                      // Subjects
                       if (user.subjects.isNotEmpty) ...[
                         _ProfileSection(
                           title: '📚 Subjects',
                           child: Wrap(
-                            spacing: 8, runSpacing: 8,
-                            children: user.subjects.map((s) => _tag(s, AppTheme.primary)).toList(),
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: user.subjects
+                                .map((s) => _tag(s, AppTheme.primary))
+                                .toList(),
                           ),
                         ),
                         const SizedBox(height: 12),
                       ],
 
-                      // Strengths
                       if (user.strengths.isNotEmpty) ...[
                         _ProfileSection(
-                          title: isTutor ? '💪 Can Tutor (Expert Subjects)' : '💪 Strong Subjects',
+                          title: isTutor
+                              ? '💪 Can Tutor (Expert Subjects)'
+                              : '💪 Strong Subjects',
                           child: Wrap(
-                            spacing: 8, runSpacing: 8,
-                            children: user.strengths.map((s) => _tag(s, AppTheme.success)).toList(),
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: user.strengths
+                                .map((s) => _tag(s, AppTheme.success))
+                                .toList(),
                           ),
                         ),
                         const SizedBox(height: 12),
                       ],
 
-                      // Weaknesses
                       if (user.weaknesses.isNotEmpty) ...[
                         _ProfileSection(
-                          title: isTutor ? '📖 Still Learning' : '😅 Needs Help With',
+                          title: isTutor
+                              ? '📖 Still Learning'
+                              : '😅 Needs Help With',
                           child: Wrap(
-                            spacing: 8, runSpacing: 8,
-                            children: user.weaknesses.map((s) => _tag(s, AppTheme.error)).toList(),
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: user.weaknesses
+                                .map((s) => _tag(s, AppTheme.error))
+                                .toList(),
                           ),
                         ),
                         const SizedBox(height: 12),
                       ],
 
-                      // Learning Style
                       if (user.learningStyles.isNotEmpty) ...[
                         _ProfileSection(
                           title: '🧠 Learning Style',
                           child: Wrap(
-                            spacing: 8, runSpacing: 8,
-                            children: user.learningStyles.map((s) => _tag(s, AppTheme.accent)).toList(),
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: user.learningStyles
+                                .map((s) => _tag(s, AppTheme.accent))
+                                .toList(),
                           ),
                         ),
                         const SizedBox(height: 12),
                       ],
 
-                      // Study Format
                       if (user.studyStyles.isNotEmpty) ...[
                         _ProfileSection(
                           title: '👥 Study Format',
                           child: Wrap(
-                            spacing: 8, runSpacing: 8,
-                            children: user.studyStyles.map((s) => _tag(s, AppTheme.warning)).toList(),
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: user.studyStyles
+                                .map((s) => _tag(s, AppTheme.warning))
+                                .toList(),
                           ),
                         ),
                         const SizedBox(height: 12),
                       ],
 
-                      // Availability
                       if (user.availability.isNotEmpty) ...[
                         _ProfileSection(
                           title: '📅 Availability',
@@ -331,21 +365,26 @@ class ProfileScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: user.availability.entries.map((e) {
                               return Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
+                                padding:
+                                    const EdgeInsets.only(bottom: 10),
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
                                   children: [
                                     Text(e.key,
                                         style: const TextStyle(
                                             color: AppTheme.textSecondary,
                                             fontFamily: 'Poppins',
                                             fontSize: 12,
-                                            fontWeight: FontWeight.w600)),
+                                            fontWeight:
+                                                FontWeight.w600)),
                                     const SizedBox(height: 6),
                                     Wrap(
-                                      spacing: 6, runSpacing: 6,
+                                      spacing: 6,
+                                      runSpacing: 6,
                                       children: e.value
-                                          .map((t) => _tag(t, const Color(0xFF3B82F6)))
+                                          .map((t) => _tag(t,
+                                              const Color(0xFF3B82F6)))
                                           .toList(),
                                     ),
                                   ],
@@ -357,7 +396,6 @@ class ProfileScreen extends StatelessWidget {
                         const SizedBox(height: 12),
                       ],
 
-                      // Empty state
                       if (user.subjects.isEmpty &&
                           user.strengths.isEmpty &&
                           user.weaknesses.isEmpty &&
@@ -369,11 +407,14 @@ class ProfileScreen extends StatelessWidget {
                           decoration: BoxDecoration(
                             color: AppTheme.bgCard,
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppTheme.primary.withOpacity(0.3)),
+                            border: Border.all(
+                                color:
+                                    AppTheme.primary.withOpacity(0.3)),
                           ),
                           child: Column(
                             children: [
-                              const Text('📋', style: TextStyle(fontSize: 40)),
+                              const Text('📋',
+                                  style: TextStyle(fontSize: 40)),
                               const SizedBox(height: 12),
                               const Text('No profile details yet',
                                   style: TextStyle(
@@ -392,12 +433,17 @@ class ProfileScreen extends StatelessWidget {
                                       height: 1.5)),
                               const SizedBox(height: 16),
                               ElevatedButton.icon(
-                                onPressed: () => Navigator.push(context,
-                                    MaterialPageRoute(builder: (_) => const EditProfileScreen())),
+                                onPressed: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) =>
+                                            const EditProfileScreen())),
                                 icon: const Icon(Icons.edit, size: 16),
                                 label: const Text('Edit Profile',
-                                    style: TextStyle(fontFamily: 'Poppins')),
-                                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
+                                    style:
+                                        TextStyle(fontFamily: 'Poppins')),
+                                style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppTheme.primary),
                               ),
                             ],
                           ),
@@ -413,13 +459,17 @@ class ProfileScreen extends StatelessWidget {
                             _SettingsRow(
                               icon: Icons.person_outline,
                               label: 'Edit Profile',
-                              onTap: () => Navigator.push(context,
-                                  MaterialPageRoute(builder: (_) => const EditProfileScreen())),
+                              onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          const EditProfileScreen())),
                             ),
                             _SettingsRow(
                               icon: Icons.settings_outlined,
                               label: 'Settings',
-                              onTap: () => _showSettingsSheet(context, state),
+                              onTap: () =>
+                                  _showSettingsSheet(context, state),
                             ),
                             _SettingsRow(
                               icon: Icons.notifications_outlined,
@@ -440,7 +490,8 @@ class ProfileScreen extends StatelessWidget {
                               icon: Icons.logout,
                               label: 'Sign Out',
                               color: AppTheme.error,
-                              onTap: () => _confirmSignOut(context, state),
+                              onTap: () =>
+                                  _confirmSignOut(context, state),
                             ),
                           ],
                         ),
@@ -467,7 +518,8 @@ class ProfileScreen extends StatelessWidget {
       backgroundColor: AppTheme.bgCard,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+          borderRadius:
+              BorderRadius.vertical(top: Radius.circular(24))),
       builder: (_) => Padding(
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
         child: Column(
@@ -476,7 +528,8 @@ class ProfileScreen extends StatelessWidget {
           children: [
             Center(
               child: Container(
-                width: 40, height: 4,
+                width: 40,
+                height: 4,
                 decoration: BoxDecoration(
                     color: AppTheme.divider,
                     borderRadius: BorderRadius.circular(2)),
@@ -491,7 +544,7 @@ class ProfileScreen extends StatelessWidget {
                     fontFamily: 'Poppins')),
             const SizedBox(height: 20),
 
-            // Account info card
+            // ✅ Account info card using ProfileAvatar
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -501,20 +554,10 @@ class ProfileScreen extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Container(
-                    width: 48, height: 48,
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                          colors: [AppTheme.primary, AppTheme.accent]),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        user.fullName.isNotEmpty ? user.fullName[0].toUpperCase() : 'U',
-                        style: const TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
-                      ),
-                    ),
+                  ProfileAvatar(
+                    photoUrl:    user.profilePhotoUrl,
+                    displayName: user.fullName,
+                    size:        48,
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -536,16 +579,21 @@ class ProfileScreen extends StatelessWidget {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: (user.isTutor ? AppTheme.success : const Color(0xFF3B82F6))
+                      color: (user.isTutor
+                              ? AppTheme.success
+                              : const Color(0xFF3B82F6))
                           .withOpacity(0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       user.isTutor ? '🏫 Tutor' : '🎓 Student',
                       style: TextStyle(
-                          color: user.isTutor ? AppTheme.success : const Color(0xFF3B82F6),
+                          color: user.isTutor
+                              ? AppTheme.success
+                              : const Color(0xFF3B82F6),
                           fontFamily: 'Poppins',
                           fontSize: 11,
                           fontWeight: FontWeight.w600),
@@ -563,8 +611,10 @@ class ProfileScreen extends StatelessWidget {
               color: AppTheme.primary,
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const EditProfileScreen()));
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const EditProfileScreen()));
               },
             ),
             _SheetOption(
@@ -619,26 +669,31 @@ class ProfileScreen extends StatelessWidget {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AppTheme.bgCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Sign Out',
             style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontFamily: 'Poppins',
                 fontWeight: FontWeight.bold)),
         content: const Text('Are you sure you want to sign out?',
-            style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Poppins')),
+            style: TextStyle(
+                color: AppTheme.textSecondary, fontFamily: 'Poppins')),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Cancel',
-                  style: TextStyle(color: AppTheme.textSecondary))),
+                  style:
+                      TextStyle(color: AppTheme.textSecondary))),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
               state.signOut();
             },
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
-            child: const Text('Sign Out', style: TextStyle(fontFamily: 'Poppins')),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.error),
+            child: const Text('Sign Out',
+                style: TextStyle(fontFamily: 'Poppins')),
           ),
         ],
       ),
@@ -646,7 +701,8 @@ class ProfileScreen extends StatelessWidget {
   }
 
   Widget _tag(String label, Color color) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           color: color.withOpacity(0.15),
           borderRadius: BorderRadius.circular(20),
@@ -661,7 +717,7 @@ class ProfileScreen extends StatelessWidget {
       );
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 class _SheetOption extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -670,8 +726,11 @@ class _SheetOption extends StatelessWidget {
   final VoidCallback onTap;
 
   const _SheetOption({
-    required this.icon, required this.title, required this.subtitle,
-    required this.color, required this.onTap,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
   });
 
   @override
@@ -679,7 +738,8 @@ class _SheetOption extends StatelessWidget {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: Container(
-        width: 40, height: 40,
+        width: 40,
+        height: 40,
         decoration: BoxDecoration(
             color: color.withOpacity(0.12),
             borderRadius: BorderRadius.circular(10)),
@@ -687,27 +747,38 @@ class _SheetOption extends StatelessWidget {
       ),
       title: Text(title,
           style: TextStyle(
-              color: color == AppTheme.error ? AppTheme.error : AppTheme.textPrimary,
-              fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w500)),
+              color: color == AppTheme.error
+                  ? AppTheme.error
+                  : AppTheme.textPrimary,
+              fontFamily: 'Poppins',
+              fontSize: 14,
+              fontWeight: FontWeight.w500)),
       subtitle: Text(subtitle,
           style: const TextStyle(
-              color: AppTheme.textMuted, fontFamily: 'Poppins', fontSize: 12)),
+              color: AppTheme.textMuted,
+              fontFamily: 'Poppins',
+              fontSize: 12)),
       trailing: color == AppTheme.error
           ? null
-          : const Icon(Icons.chevron_right, color: AppTheme.textMuted, size: 18),
+          : const Icon(Icons.chevron_right,
+              color: AppTheme.textMuted, size: 18),
       onTap: onTap,
     );
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 class _InfoRow extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
   final Color? valueColor;
 
-  const _InfoRow({required this.icon, required this.label, required this.value, this.valueColor});
+  const _InfoRow(
+      {required this.icon,
+      required this.label,
+      required this.value,
+      this.valueColor});
 
   @override
   Widget build(BuildContext context) {
@@ -721,13 +792,17 @@ class _InfoRow extends StatelessWidget {
             width: 80,
             child: Text(label,
                 style: const TextStyle(
-                    color: AppTheme.textMuted, fontFamily: 'Poppins', fontSize: 12)),
+                    color: AppTheme.textMuted,
+                    fontFamily: 'Poppins',
+                    fontSize: 12)),
           ),
           Expanded(
             child: Text(value,
                 style: TextStyle(
                     color: valueColor ?? AppTheme.textPrimary,
-                    fontFamily: 'Poppins', fontSize: 13, fontWeight: FontWeight.w500)),
+                    fontFamily: 'Poppins',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500)),
           ),
         ],
       ),
@@ -735,13 +810,17 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 class _ProfileStat extends StatelessWidget {
   final String value, label;
   final IconData icon;
   final Color color;
 
-  const _ProfileStat({required this.value, required this.label, required this.icon, required this.color});
+  const _ProfileStat(
+      {required this.value,
+      required this.label,
+      required this.icon,
+      required this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -752,25 +831,30 @@ class _ProfileStat extends StatelessWidget {
           const SizedBox(height: 6),
           Text(value,
               style: TextStyle(
-                  color: color, fontWeight: FontWeight.bold, fontSize: 20, fontFamily: 'Poppins')),
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                  fontFamily: 'Poppins')),
           const SizedBox(height: 2),
           Text(label,
               style: const TextStyle(
-                  color: AppTheme.textMuted, fontSize: 11, fontFamily: 'Poppins')),
+                  color: AppTheme.textMuted,
+                  fontSize: 11,
+                  fontFamily: 'Poppins')),
         ],
       ),
     );
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 class _VerticalDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       Container(width: 1, height: 40, color: AppTheme.divider);
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 class _ProfileSection extends StatelessWidget {
   final String title;
   final Widget child;
@@ -803,14 +887,18 @@ class _ProfileSection extends StatelessWidget {
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 class _SettingsRow extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color? color;
   final VoidCallback onTap;
 
-  const _SettingsRow({required this.icon, required this.label, this.color, required this.onTap});
+  const _SettingsRow(
+      {required this.icon,
+      required this.label,
+      this.color,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -819,9 +907,11 @@ class _SettingsRow extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       leading: Icon(icon, color: c, size: 20),
       title: Text(label,
-          style: TextStyle(color: c, fontFamily: 'Poppins', fontSize: 14)),
+          style: TextStyle(
+              color: c, fontFamily: 'Poppins', fontSize: 14)),
       trailing: color == null
-          ? const Icon(Icons.chevron_right, color: AppTheme.textMuted, size: 20)
+          ? const Icon(Icons.chevron_right,
+              color: AppTheme.textMuted, size: 20)
           : null,
       onTap: onTap,
     );

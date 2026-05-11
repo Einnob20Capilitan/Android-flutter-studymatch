@@ -1,5 +1,7 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../services/app_state.dart';
 import '../../utils/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
@@ -20,8 +22,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   String? _selectedTopic;
   DateTime? _dob;
   String? _selectedGender;
-  String? _selectedDepartment; // for students (chip)
-  String? _degreeCtrl_text;    // for tutors (free text)
+  String? _selectedDepartment;
   late final TextEditingController _degreeCtrl;
 
   late Set<String> _selectedSubjects;
@@ -32,6 +33,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late Map<String, Set<String>> _availability;
   late Set<String> _selectedDays;
   bool _saving = false;
+
+  // ✅ Photo upload state
+  Uint8List? _photoBytes;
+  String?    _photoFileName;
+  bool       _uploadingPhoto = false;
 
   static const _subjectList = [
     'Mathematics', 'Physics', 'Chemistry', 'Biology', 'English',
@@ -85,33 +91,118 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool get _isTutor =>
       context.read<AppState>().currentUser?.role == 'tutor';
 
+  // ✅ Pick photo from gallery or camera
+  Future<void> _pickPhoto() async {
+    final picker = ImagePicker();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.bgCard,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                  color: AppTheme.divider,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined,
+                  color: AppTheme.primaryLight),
+              title: const Text('Take Photo',
+                  style: TextStyle(
+                      color: AppTheme.textPrimary, fontFamily: 'Poppins')),
+              onTap: () async {
+                Navigator.pop(context);
+                final img = await picker.pickImage(
+                    source: ImageSource.camera, imageQuality: 80);
+                if (img != null) {
+                  final bytes = await img.readAsBytes();
+                  setState(() {
+                    _photoBytes    = bytes;
+                    _photoFileName = img.name;
+                  });
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined,
+                  color: AppTheme.primaryLight),
+              title: const Text('Choose from Gallery',
+                  style: TextStyle(
+                      color: AppTheme.textPrimary, fontFamily: 'Poppins')),
+              onTap: () async {
+                Navigator.pop(context);
+                final img = await picker.pickImage(
+                    source: ImageSource.gallery, imageQuality: 80);
+                if (img != null) {
+                  final bytes = await img.readAsBytes();
+                  setState(() {
+                    _photoBytes    = bytes;
+                    _photoFileName = img.name;
+                  });
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
 
-    // Build availability map with List values
     final avail = <String, List<String>>{};
     for (final day in _selectedDays) {
       avail[day] = (_availability[day] ?? <String>{}).toList();
     }
 
-    final error = await context.read<AppState>().saveProfile({
+    // ✅ Upload photo first if one was picked
+    String? photoUrl;
+    if (_photoBytes != null && _photoFileName != null) {
+      setState(() => _uploadingPhoto = true);
+      final uploadResult = await context.read<AppState>().uploadProfilePhoto(
+        photoBytes: _photoBytes!,
+        fileName:   _photoFileName!,
+      );
+      setState(() => _uploadingPhoto = false);
+      if (uploadResult != null) {
+        photoUrl = uploadResult;
+      }
+    }
+
+    final fields = <String, dynamic>{
       'fullName':      _nameCtrl.text.trim(),
       'school':        _schoolCtrl.text.trim(),
       'bio':           _bioCtrl.text.trim(),
       'topic':         _selectedTopic,
-      'dateOfBirth':   _dob?.toIso8601String(), // ✅ must be String, not DateTime
+      'dateOfBirth':   _dob?.toIso8601String(),
       'gender':        _selectedGender,
       'department':    _isTutor
           ? _degreeCtrl.text.trim()
           : _selectedDepartment,
       'subjects':      _selectedSubjects.toList(),
-      'strengths':     _selectedStrengths.toList(),   // ✅ was missing
-      'weaknesses':    _selectedWeaknesses.toList(),  // ✅ was missing
+      'strengths':     _selectedStrengths.toList(),
+      'weaknesses':    _selectedWeaknesses.toList(),
       'learningStyles': _selectedLearningStyles.toList(),
       'studyStyles':   _selectedStudyStyles.toList(),
       'availability':  avail,
-    });
+    };
+
+    // ✅ Include the new photo URL if upload succeeded
+    if (photoUrl != null) {
+      fields['profilePhotoUrl'] = photoUrl;
+    }
+
+    final error = await context.read<AppState>().saveProfile(fields);
 
     if (!mounted) return;
     setState(() => _saving = false);
@@ -182,7 +273,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     child: GradientButton(
                       text: 'Save Changes',
                       onPressed: _save,
-                      isLoading: _saving,
+                      isLoading: _saving || _uploadingPhoto,
                       icon: Icons.check_rounded,
                     ),
                   ),
@@ -195,7 +286,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  // ── App Bar ───────────────────────────────────────────────────────────────
   Widget _buildAppBar() {
     return SliverAppBar(
       pinned: true,
@@ -216,7 +306,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       actions: [
         Padding(
           padding: const EdgeInsets.only(right: 12),
-          child: _saving
+          child: (_saving || _uploadingPhoto)
               ? const Center(
                   child: SizedBox(
                     width: 20, height: 20,
@@ -238,61 +328,104 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  // ── Avatar Header ─────────────────────────────────────────────────────────
+  // ✅ Avatar header — now tappable and shows picked image preview
   Widget _buildAvatarHeader() {
     final name    = _nameCtrl.text;
     final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
-    return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-          colors: [Color(0xFF2D1F5E), Color(0xFF1A0A3A)],
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 28),
-      child: Column(
-        children: [
-          Stack(
-            children: [
-              Container(
-                width: 88, height: 88,
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(colors: [AppTheme.primary, AppTheme.accent]),
-                  shape: BoxShape.circle,
-                ),
-                child: Center(
-                  child: Text(initial,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 36,
-                          fontFamily: 'Poppins')),
-                ),
-              ),
-              Positioned(
-                bottom: 0, right: 0,
-                child: Container(
-                  width: 28, height: 28,
-                  decoration: BoxDecoration(
-                    color: AppTheme.primary,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppTheme.bgDark, width: 2),
-                  ),
-                  child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 14),
-                ),
-              ),
-            ],
+    final existingPhotoUrl =
+        context.read<AppState>().currentUser?.profilePhotoUrl;
+
+    return GestureDetector(
+      onTap: _pickPhoto, // ✅ whole area tappable
+      child: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            colors: [Color(0xFF2D1F5E), Color(0xFF1A0A3A)],
           ),
-          const SizedBox(height: 10),
-          const Text('Tap the camera to change photo',
-              style: TextStyle(color: AppTheme.textMuted, fontSize: 12, fontFamily: 'Poppins')),
-        ],
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 28),
+        child: Column(
+          children: [
+            Stack(
+              children: [
+                // ✅ Show picked photo, existing photo URL, or initials
+                Container(
+                  width: 88, height: 88,
+                  decoration: BoxDecoration(
+                    gradient: (_photoBytes == null && (existingPhotoUrl == null || existingPhotoUrl.isEmpty))
+                        ? const LinearGradient(
+                            colors: [AppTheme.primary, AppTheme.accent])
+                        : null,
+                    shape: BoxShape.circle,
+                    border: _photoBytes != null
+                        ? Border.all(color: AppTheme.success, width: 3)
+                        : null,
+                  ),
+                  child: ClipOval(
+                    child: _photoBytes != null
+                        ? Image.memory(_photoBytes!, fit: BoxFit.cover,
+                            width: 88, height: 88)
+                        : (existingPhotoUrl != null && existingPhotoUrl.isNotEmpty)
+                            ? Image.network(existingPhotoUrl,
+                                fit: BoxFit.cover, width: 88, height: 88,
+                                errorBuilder: (_, __, ___) => Center(
+                                  child: Text(initial,
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 36,
+                                          fontFamily: 'Poppins')),
+                                ))
+                            : Center(
+                                child: Text(initial,
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 36,
+                                        fontFamily: 'Poppins')),
+                              ),
+                  ),
+                ),
+                Positioned(
+                  bottom: 0, right: 0,
+                  child: Container(
+                    width: 28, height: 28,
+                    decoration: BoxDecoration(
+                      color: _photoBytes != null
+                          ? AppTheme.success
+                          : AppTheme.primary,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppTheme.bgDark, width: 2),
+                    ),
+                    child: Icon(
+                      _photoBytes != null
+                          ? Icons.check_rounded
+                          : Icons.camera_alt_rounded,
+                      color: Colors.white, size: 14),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              _photoBytes != null
+                  ? 'Photo selected — tap Save to upload'
+                  : 'Tap to change photo',
+              style: TextStyle(
+                  color: _photoBytes != null
+                      ? AppTheme.success
+                      : AppTheme.textMuted,
+                  fontSize: 12,
+                  fontFamily: 'Poppins'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  // ── Section wrapper ───────────────────────────────────────────────────────
   Widget _buildSection({required IconData icon, required String title, required Widget child}) {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -333,7 +466,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  // ── Personal Info ─────────────────────────────────────────────────────────
   Widget _buildPersonalInfo() {
     return Column(
       children: [
@@ -352,7 +484,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           prefixIcon: Icons.location_city_outlined,
         ),
         const SizedBox(height: 14),
-        // Bio
         _fieldLabel('Bio (Optional)'),
         const SizedBox(height: 6),
         TextField(
@@ -360,7 +491,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           maxLines: 3,
           style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Poppins', fontSize: 14),
           decoration: InputDecoration(
-            hintText: _isTutor ? 'Tell students about your teaching approach...' : 'Tell others about yourself...',
+            hintText: _isTutor
+                ? 'Tell students about your teaching approach...'
+                : 'Tell others about yourself...',
             hintStyle: const TextStyle(color: AppTheme.textMuted, fontFamily: 'Poppins'),
             filled: true,
             fillColor: AppTheme.inputBg,
@@ -385,12 +518,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  // ── Academic Details ──────────────────────────────────────────────────────
   Widget _buildAcademicDetails() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Tutors get free-text degree; students get department chips
         if (_isTutor) ...[
           _fieldLabel('College Degree'),
           const SizedBox(height: 6),
@@ -436,7 +567,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  // ── Subjects ──────────────────────────────────────────────────────────────
   Widget _buildSubjects() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -460,7 +590,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  // ── Strengths (tutors) ────────────────────────────────────────────────────
   Widget _buildStrengths() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -482,7 +611,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  // ── Weaknesses (students) ─────────────────────────────────────────────────
   Widget _buildWeaknesses() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -504,7 +632,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  // ── Study Style ───────────────────────────────────────────────────────────
   Widget _buildStudyStyle() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -544,7 +671,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  // ── Availability ──────────────────────────────────────────────────────────
   Widget _buildAvailability() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
